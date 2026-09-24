@@ -4,11 +4,10 @@
   "outputDirectory": "dist",
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
   "env": {
-    "NEXT_PUBLIC_SUPABASE_URL": "https://tzyijuvbmxtrjhbsdntb.supabase.co",
-    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_wb7cfJkyG8Wr9U8XKVEhug_b-XCZHXY",
-    "VITE_SUPABASE_URL": "https://tzyijuvbmxtrjhbsdntb.supabase.co",
-    "VITE_SUPABASE_ANON_KEY": "sb_publishable_wb7cfJkyG8Wr9U8XKVEhug_b-XCZHXY",
-    "VITE_GOOGLE_CLIENT_ID": "1065078894672-rmp5kp8vfjns5rn9kp5psfp16g691043.apps.googleusercontent.com"
+    "NEXT_PUBLIC_SUPABASE_URL": "https://ggerocxvxxgnyqhswwju.supabase.co",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_2ANr5TQpgJd9pJDXBwH1WA_6HEe9rBt",
+    "VITE_SUPABASE_URL": "https://ggerocxvxxgnyqhswwju.supabase.co",
+    "VITE_SUPABASE_ANON_KEY": "sb_publishable_2ANr5TQpgJd9pJDXBwH1WA_6HEe9rBt"
   },
   "name": "tfuq25",
   "version": 2
