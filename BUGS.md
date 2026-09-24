@@ -34,7 +34,7 @@ The two headline problems are:
 
 ### C-1 — `/api/devop-db` exposes the entire database with no authentication
 
-**File:** `api/devop-db.js:4-54`
+**File:** `server/devop-db.js:4-54`
 
 The handler never calls `getProfile()` or performs any auth or role check. It runs with the **service-role key** (via `db-client.js`), so Supabase RLS is bypassed entirely. It returns, for all 11 tables (`profiles`, `clients`, `client_assignments`, `invites`, `reports`, `report_revisions`, `targets`, `notifications`, `audit_log`, `error_log`, `annotations`):
 
@@ -52,7 +52,7 @@ Real exposure includes every user's email address and role (`profiles`), every c
 
 ### C-2 — `/api/devop-files` serves arbitrary files and the whole source tree with no authentication
 
-**File:** `api/devop-files.js:124-197`
+**File:** `server/devop-files.js:124-197`
 
 Same missing auth. Three modes, all unauthenticated:
 
@@ -62,7 +62,7 @@ Same missing auth. Three modes, all unauthenticated:
 | `?action=read&path=<file>` | returns the contents of any file under the project root |
 | `?download=project` | streams a ZIP of every source file |
 
-The only guard on `read` is `filePath.includes('..')` (`api/devop-files.js:155`), which blocks traversal out of the root but does **nothing** about sensitive files *inside* it. The `EXCLUDE_FILES` list (`.env`, `package-lock.json`, …) at `api/devop-files.js:97` is applied only to the directory walk — it is **not** consulted by the `read` action.
+The only guard on `read` is `filePath.includes('..')` (`server/devop-files.js:155`), which blocks traversal out of the root but does **nothing** about sensitive files *inside* it. The `EXCLUDE_FILES` list (`.env`, `package-lock.json`, …) at `server/devop-files.js:97` is applied only to the directory walk — it is **not** consulted by the `read` action.
 
 So `GET /api/devop-files?action=read&path=vercel.json` returns the deployment config, including the service-role key (see C-3). The `download=project` ZIP also contains `vercel.json`.
 
@@ -82,7 +82,7 @@ So `GET /api/devop-files?action=read&path=vercel.json` returns the deployment co
 }
 ```
 
-`SUPABASE_SERVICE_ROLE_KEY` bypasses all Row Level Security. It is used by every file in `api/` (`api/db-client.js:6`), so any leak is equivalent to full read/write access to the production database.
+`SUPABASE_SERVICE_ROLE_KEY` bypasses all Row Level Security. It is used by every file in `api/` (`server/db-client.js:6`), so any leak is equivalent to full read/write access to the production database.
 
 It is currently leaked two ways: this file is served verbatim by C-2, and it is bundled into the `download=project` ZIP.
 
@@ -111,7 +111,7 @@ Every other authenticated route is wrapped in `<ProtectedRoute>`. `/devop` is no
 
 ### C-5 — `targets` DELETE has no authorization check (IDOR)
 
-**File:** `api/targets.js:37-44`
+**File:** `server/targets.js:37-44`
 
 ```js
 if (req.method === 'DELETE') {
@@ -175,7 +175,7 @@ That returns every user's email address and role, every invite token, the comple
 
 ### H-1 — Bootstrap logic lets any authenticated user become super admin
 
-**File:** `api/me.js:4-27`
+**File:** `server/me.js:4-27`
 
 ```js
 async function needsBootstrap() {
@@ -198,7 +198,7 @@ If no `super_admin` profile row exists at the moment any user first hits `/api/m
 
 ### H-2 — `duplicateFromId` allows cross-tenant report data copying
 
-**File:** `api/reports.js:96-105`
+**File:** `server/reports.js:96-105`
 
 ```js
 if (body.duplicateFromId) {
@@ -255,7 +255,7 @@ Secondary effects: any client whose legitimate phone number happens to start wit
 
 ### H-5 — `revert-to-draft` silently discards unsaved editor changes
 
-**Files:** `api/reports.js:152-157`, `src/pages/ReportEditor.jsx:436`
+**Files:** `server/reports.js:152-157`, `src/pages/ReportEditor.jsx:436`
 
 `ReportEditor` always sends the full payload (`buildPayload()`), but the `revert-to-draft` branch ignores `patch` entirely:
 
@@ -275,7 +275,7 @@ Related: the branch has no status precondition (unlike `save`/`publish`/`revise`
 
 ### H-6 — `/api/upload` accepts unbounded, unvalidated file uploads
 
-**File:** `api/upload.js:12-21`
+**File:** `server/upload.js:12-21`
 
 ```js
 const { fileName, fileBase64, contentType } = req.body || {};
@@ -294,7 +294,7 @@ No size limit and no MIME/extension validation. The UI advertises "PNG, JPG, Web
 
 ### H-7 — Clients can read unpublished draft reports by ID
 
-**File:** `api/reports.js:53-61`
+**File:** `server/reports.js:53-61`
 
 The list branch filters drafts out for clients, and says so explicitly:
 
@@ -342,7 +342,7 @@ if (profile.role === 'client' && report.status !== 'published') {
 
 There is no `scripts/` directory anywhere in the project. Vercel runs `npm run build`, so the second stage fails with `Cannot find module` and the deployment breaks.
 
-This also has a functional consequence: `api/devop-files.js:127-137` reads source from `dist/_source`, which is exactly what the missing script was supposed to produce. That fallback path can therefore never populate.
+This also has a functional consequence: `server/devop-files.js:127-137` reads source from `dist/_source`, which is exactly what the missing script was supposed to produce. That fallback path can therefore never populate.
 
 > *Verification note:* I confirmed the file is absent and that `npm run build` cannot proceed. A full end-to-end build could not be run here because `node_modules/` is not installed in this copy.
 
@@ -398,9 +398,9 @@ The state is local and never persisted to the database, and nothing on the clien
 { key: 'assignees', label: 'Team', render: (c) => <span ...>{c._assignees?.length ? `${c._assignees.length} assigned` : '—'}</span> }
 ```
 
-No code path ever populates `_assignees`. The list endpoint `GET /api/clients` (`api/clients.js:26-52`) returns bare client rows, and only the `single=1` branch attaches a `team` array (under a different key). The column therefore renders `—` for every client.
+No code path ever populates `_assignees`. The list endpoint `GET /api/clients` (`server/clients.js:26-52`) returns bare client rows, and only the `single=1` branch attaches a `team` array (under a different key). The column therefore renders `—` for every client.
 
-**Fix:** either have `GET /api/clients` attach assignment counts (the `assignee` filter at `api/clients.js:47-51` already queries `client_assignments`, so the data is one join away), or drop the column.
+**Fix:** either have `GET /api/clients` attach assignment counts (the `assignee` filter at `server/clients.js:47-51` already queries `client_assignments`, so the data is one join away), or drop the column.
 
 ---
 
@@ -417,13 +417,13 @@ The recording block explicitly skips keystrokes targeted at `INPUT`/`TEXTAREA` �
 
 This appears to be leftover instrumentation from an AI build harness (corroborated by `VITE_GOOGLE_AUTH_PROXY=https://designarena.ai/...` and `FULLSTACK_RESTORE_API_URL` in `vercel.json`).
 
-**Fix:** delete both inline scripts from `index.html`. Verify no other harness artifacts remain (`designarena.ai` references in `vercel.json` and `api/db-wake.js`).
+**Fix:** delete both inline scripts from `index.html`. Verify no other harness artifacts remain (`designarena.ai` references in `vercel.json` and `server/db-wake.js`).
 
 ---
 
 ### M-6 — `_delete_requested` flag is silently erased on the next save
 
-**Files:** `api/reports.js:174-182`, `src/pages/ReportEditor.jsx:189`
+**Files:** `server/reports.js:174-182`, `src/pages/ReportEditor.jsx:189`
 
 A team admin's delete request is stored by mutating the report's `lists` JSONB:
 
@@ -461,7 +461,7 @@ Every source file in this project is `.js` or `.jsx`. `npm run lint` therefore l
 
 ### M-8 — CORS policy is wildcard across an authenticated API
 
-**File:** `api/helpers.js:4`
+**File:** `server/helpers.js:4`
 
 ```js
 res.setHeader('Access-Control-Allow-Origin', '*');
@@ -475,7 +475,7 @@ Applied to every route, including those that mutate data. Because auth is Bearer
 
 ### M-9 — Invite tokens are generated and stored but never used
 
-**File:** `api/invites.js:38-42`
+**File:** `server/invites.js:38-42`
 
 ```js
 const token = genPassword(32);
@@ -492,7 +492,7 @@ The `invites` table has `token`, `status`, `expires_at` columns and a `pending` 
 
 ### M-10 — `devop-db` schema inference is unreliable and misreports types
 
-**File:** `api/devop-db.js:20-34`
+**File:** `server/devop-db.js:20-34`
 
 Column "types" are guessed from the JavaScript type of the first row's values:
 
@@ -531,7 +531,7 @@ Separately, `KeywordStatusTracker` fetches the ORM report list twice: once insid
 const [assigned, setAssigned] = useState(client.team || []);
 ```
 
-`client` here is the row passed from the client **list**, and `GET /api/clients` (list branch, `api/clients.js:26-52`) returns bare client rows — the `team` array is attached only by the `single=1` branch (`api/clients.js:16-23`). So `client.team` is always `undefined` and `assigned` initialises to `[]`.
+`client` here is the row passed from the client **list**, and `GET /api/clients` (list branch, `server/clients.js:26-52`) returns bare client rows — the `team` array is attached only by the `single=1` branch (`server/clients.js:16-23`). So `client.team` is always `undefined` and `assigned` initialises to `[]`.
 
 Nothing on mount calls `refresh()` — the only `useEffect` (line 199) fetches the client's *login* account, not its assignments. `refresh()` is wired solely to the add/remove buttons.
 
@@ -588,7 +588,7 @@ Any keyword that exists in the current month but not in the source month is drop
 
 ### M-15 — Team admins were shown two client controls they could not use
 
-**Files:** `api/clients.js:77`, `src/pages/ClientDetail.jsx:120, 302`
+**Files:** `server/clients.js:77`, `src/pages/ClientDetail.jsx:120, 302`
 
 **Found while writing `FEATURES.md`** — documenting the access matrix is what surfaced it.
 
@@ -616,7 +616,7 @@ The objectives half was **pre-existing** (it also routed through `PUT /api/clien
 
 ### M-16 — Team admins were told a draft was deleted when it was not
 
-**Files:** `src/pages/ReportEditor.jsx:441, 451`, `api/reports.js:174-182`
+**Files:** `src/pages/ReportEditor.jsx:441, 451`, `server/reports.js:174-182`
 
 **Also found while writing `FEATURES.md`.**
 
@@ -642,7 +642,7 @@ The same action was already handled correctly in `ClientDetail.jsx:79-80`, which
 
 ### L-1 — Client role can pass `status=draft` to `/api/reports` and silently get nothing
 
-**File:** `api/reports.js:68-69`
+**File:** `server/reports.js:68-69`
 
 ```js
 if (profile.role === 'client') q = q.eq('status', 'published');
@@ -653,9 +653,9 @@ A client requesting `?status=draft` produces `status=published AND status=draft`
 
 ### L-2 — Empty `PUT /api/clients` body produces a 500
 
-**File:** `api/clients.js:85-88`
+**File:** `server/clients.js:85-88`
 
-If a caller sends only `{ id }`, `allowed` is `{}` and the update runs with no fields. PostgREST rejects that, and `withHandler` converts it into a generic 500. A 400 with a clear message ("No fields to update") would be correct. (`api/team.js:35` already does this properly.)
+If a caller sends only `{ id }`, `allowed` is `{}` and the update runs with no fields. PostgREST rejects that, and `withHandler` converts it into a generic 500. A 400 with a clear message ("No fields to update") would be correct. (`server/team.js:35` already does this properly.)
 
 ### L-3 — Duplicate SVG gradient IDs across charts
 
@@ -704,12 +704,12 @@ The print stylesheet is complete, so `window.print()` behaves correctly. The fin
 - `package.json:2` — `"name": "placeholder-model-2"`.
 - `src/App.js`, `src/main.js`, `vite.config.js` are compiled output with `//# sourceMappingURL=` comments, and `App.js.map`, `main.js.map`, `vite.config.js.map` are present. The original `.tsx`/`.ts` sources are not in the tree, so these maps are the only copy — but shipping them also publishes the source.
 - `public/vite.svg` and `src/assets/react.svg` are unused Vite/React defaults.
-- `api/devop-files.js:147, 180` list `README.md` and `.gitignore` in the config category; neither file exists.
+- `server/devop-files.js:147, 180` list `README.md` and `.gitignore` in the config category; neither file exists.
 - There is no `.gitignore`, so `node_modules/` and `dist/` would be tracked if this directory were its own repo.
 
 ### L-8 — `genPassword` appends a fixed suffix
 
-**File:** `api/helpers.js:84-89`
+**File:** `server/helpers.js:84-89`
 
 ```js
 return p + '1Aa!';
@@ -719,7 +719,7 @@ Every generated password and invite token ends in the literal `1Aa!`. The random
 
 ### L-9 — `sendEmail` default sender is a Resend sandbox address
 
-**File:** `api/helpers.js:106`
+**File:** `server/helpers.js:106`
 
 ```js
 from: process.env.RESEND_FROM || 'Agency Portal <onboarding@resend.dev>',
@@ -735,7 +735,7 @@ from: process.env.RESEND_FROM || 'Agency Portal <onboarding@resend.dev>',
 
 The link exists, but `/forgot-password` is not a form — it renders a static panel reading *"Please connect with the project 'SOP' to get your new dashboard password."* There is no input, no reset call, and no way forward. Meanwhile the authenticated user menu (`Layout.jsx:159-160`) offers only "Privacy notice" and "Sign out" — there is no change-password screen for a logged-in user either.
 
-`/reset-password` works, but only as the landing page for a Supabase recovery email, which in this codebase is sent **only** by an admin via `send_link` (`api/reset-password.js:26-33`). Self-service reset is therefore impossible end to end.
+`/reset-password` works, but only as the landing page for a Supabase recovery email, which in this codebase is sent **only** by an admin via `send_link` (`server/reset-password.js:26-33`). Self-service reset is therefore impossible end to end.
 
 **Fix:** wire `ForgotPassword` to `supabase.auth.resetPasswordForEmail()` (the helper already exists and is used server-side), or correct the wording in `Privacy.jsx`.
 
@@ -767,7 +767,7 @@ Both arms of the ternary are identical, so the condition is dead. It also report
 
 ### L-13 — Editing a team member's email can silently desync login credentials
 
-**File:** `api/team.js:38-41`
+**File:** `server/team.js:38-41`
 
 ```js
 if (email !== undefined && email) {
@@ -877,7 +877,7 @@ Setting `esbuild.loader: 'jsx'` in `vite.config.js` did **not** resolve it, beca
 | Removed | Why |
 |---|---|
 | `src/lib/googleAuth.js` | Never imported by any component — no sign-in button exists. Removing it also eliminates the latent session-fixation path in `handleGoogleRedirect`, which read a token from the query string with no `state` validation (H-3). |
-| `api/db-wake.js` | Harness code that POSTed the project ref to a third-party endpoint on every 5xx. Inert since the `FULLSTACK_*` vars were removed; now gone, along with its `global.fetch` wrapper in `api/db-client.js`. |
+| `server/db-wake.js` | Harness code that POSTed the project ref to a third-party endpoint on every 5xx. Inert since the `FULLSTACK_*` vars were removed; now gone, along with its `global.fetch` wrapper in `server/db-client.js`. |
 | `src/App.css` | Empty (0 bytes) and never imported. |
 | `public/vite.svg`, `src/assets/react.svg` | Unused Vite/React scaffolding. |
 | `vite.config.js.map` | Stale source map for a TypeScript config that does not exist. |
@@ -907,7 +907,7 @@ These cannot be done from the code and must be performed by whoever owns the dep
 
 4. **Bootstrap the first super admin.** H-1's fix removed the "first user becomes super admin" behaviour. On a fresh database, set `BOOTSTRAP_SUPER_ADMIN_EMAIL` to the intended admin's address, sign in once with that account (it will be provisioned as super admin and audited), then **remove the variable**. Without it, new users are provisioned as clients only.
 
-5. **Verify sign-in after the env changes.** The `SUPABASE_*` variables are consumed server-side by `api/db-client.js`; if steps 1–2 are missed, every API route returns 401/500.
+5. **Verify sign-in after the env changes.** The `SUPABASE_*` variables are consumed server-side by `server/db-client.js`; if steps 1–2 are missed, every API route returns 401/500.
 
 ---
 

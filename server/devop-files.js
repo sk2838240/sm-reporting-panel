@@ -147,7 +147,7 @@ export default withHandler('devop-files', async (req, res) => {
   if (req.method === 'GET' && req.query.action === 'list') {
     const files = await readAllFiles(root);
     const categories = {
-      'api': files.filter(f => f.path.startsWith('api/')),
+      'api': files.filter(f => f.path.startsWith('api/') || f.path.startsWith('server/')),
       'src': files.filter(f => f.path.startsWith('src/')),
       'supabase': files.filter(f => f.path.startsWith('supabase/')),
       'public': files.filter(f => f.path.startsWith('public/')),
@@ -187,7 +187,7 @@ export default withHandler('devop-files', async (req, res) => {
     if (category === 'project') {
       filesToZip = all;
     } else if (category === 'api') {
-      filesToZip = all.filter(f => f.path.startsWith('api/'));
+      filesToZip = all.filter(f => f.path.startsWith('api/') || f.path.startsWith('server/'));
     } else if (category === 'src') {
       filesToZip = all.filter(f => f.path.startsWith('src/'));
     } else if (category === 'supabase') {

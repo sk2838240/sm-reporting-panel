@@ -8,7 +8,7 @@ import path from 'path';
 const ROOT = process.cwd();
 const OUT = path.join(ROOT, 'dist', '_source');
 
-const DIRS = ['api', 'src', 'supabase'];
+const DIRS = ['api', 'server', 'src', 'supabase'];
 const FILES = [
   'tsconfig.json',
   'tsconfig.app.json',
