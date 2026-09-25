@@ -20,6 +20,18 @@ export async function api(path, opts = {}) {
     err.body = body;
     throw err;
   }
+  // A 200 carrying a non-JSON body means the request never reached the API —
+  // typically the SPA rewrite served index.html instead. Handing the caller
+  // `null` here surfaces later as a cryptic "cannot read properties of null",
+  // so fail loudly and say what actually happened.
+  if (body === null) {
+    const err = new Error(
+      `${path} returned a non-JSON response (status ${res.status}). ` +
+      'The API route did not run — check that the serverless function is deployed and reachable.'
+    );
+    err.status = res.status;
+    throw err;
+  }
   return body;
 }
 

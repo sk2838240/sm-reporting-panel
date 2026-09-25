@@ -2,7 +2,10 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
+  "rewrites": [
+    { "source": "/api/:route", "destination": "/api/router?route=:route" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
   "env": {
     "NEXT_PUBLIC_SUPABASE_URL": "https://ggerocxvxxgnyqhswwju.supabase.co",
     "NEXT_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_2ANr5TQpgJd9pJDXBwH1WA_6HEe9rBt",

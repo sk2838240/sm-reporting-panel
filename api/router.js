@@ -1,4 +1,4 @@
-// Single dynamic API route — the only Serverless Function in this project.
+// The only Serverless Function in this project.
 //
 // Vercel's Hobby plan caps a deployment at 12 Serverless Functions, and every
 // file in the `api/` directory counts toward that — Vercel cannot tell a route
@@ -6,12 +6,18 @@
 // the handlers live in `server/` (outside `api/`) and this one function
 // dispatches to them.
 //
-// Why `[route]` and not `[...route]`: catch-all syntax is a Next.js-only
-// feature. In a plain Vercel `api/` directory (this is a Vite project) a
-// catch-all returns a malformed key like `"...route"` and 404s on deeper
-// paths. Single dynamic segments ARE supported, and every route here is a
-// single segment, so `[route]` is both correct and natively matched — no
-// rewrite rule needed, and the original query string is preserved.
+// Why a plain filename plus a rewrite, and not a dynamic route: a dynamic
+// `api/[route].js` was tried first and did NOT match — every /api/* request
+// fell through to the SPA rewrite and returned index.html with a 200, so the
+// frontend got HTML where it expected JSON. Catch-all `[...route]` is worse
+// still: that syntax is Next.js-only and yields a malformed key here. A static
+// file plus an explicit rewrite in vercel.json depends on neither:
+//
+//   { "source": "/api/:route", "destination": "/api/router?route=:route" }
+//
+// The route name therefore arrives as the `route` query parameter. It is named
+// `route` rather than `path` because /api/devop-files takes a real `?path=`
+// argument (the file to read) that must not be clobbered.
 //
 // Public URLs are unchanged: /api/clients, /api/reports?single=1, and so on.
 // Each handler still wraps itself in withHandler(), so CORS, OPTIONS and error
@@ -52,15 +58,16 @@ const ROUTES = {
   upload,
 };
 
-// Resolve the requested route name. Prefers the dynamic segment Vercel matches
-// from `[route]`, and falls back to parsing the URL — so the dispatcher still
-// works if the platform populates `req.query` differently than expected.
+// Resolve the requested route name. It arrives as ?route= from the rewrite in
+// vercel.json; parsing the URL is a fallback so a direct hit on /api/router
+// still resolves sensibly instead of dispatching on the literal word "router".
 function routeName(req) {
-  const segment = req.query?.route;
-  if (typeof segment === 'string' && segment) return segment;
+  const param = req.query?.route;
+  if (typeof param === 'string' && param) return param;
 
   const pathname = String(req.url || '').split('?')[0];
-  return pathname.replace(/^\/api\/?/, '').replace(/\/+$/, '');
+  const segment = pathname.replace(/^\/api\/?/, '').replace(/\/+$/, '');
+  return segment === 'router' ? '' : segment;
 }
 
 export default async function handler(req, res) {
