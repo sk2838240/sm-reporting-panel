@@ -23,6 +23,7 @@ export default function ClientDetail() {
   const [confirm, setConfirm] = useState(null);
   const [objectives, setObjectives] = useState([]);
   const [savingObjectives, setSavingObjectives] = useState(false);
+  const [compareVisible, setCompareVisible] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -30,6 +31,7 @@ export default function ClientDetail() {
       const c = await get(`/api/clients?single=1&id=${clientId}`);
       setClient(c);
       setObjectives(Array.isArray(c.objectives) ? c.objectives : []);
+      setCompareVisible(c.compare_visible !== false);
       const svcList = c.services || SERVICE_ORDER;
       if (!svcList.includes(service)) {
         setSearchParams(prev => { const n = new URLSearchParams(prev); n.set('service', svcList[0]); return n; }, { replace: true });
@@ -51,6 +53,17 @@ export default function ClientDetail() {
   const revert = async (rep) => { try { await put('/api/reports', { id: rep.id, action: 'revert-to-draft' }); push('Reverted to draft', 'success'); load(); } catch (e) { push(e.message, 'error'); } };
   const remove = async (rep) => { try { await del('/api/reports', { id: rep.id }); push('Report deleted permanently', 'success'); load(); } catch (e) { push(e.message, 'error'); } };
   const requestDelete = async (rep) => { try { await del('/api/reports', { id: rep.id }); push('Deletion requested — super admin will review', 'success'); load(); } catch (e) { push(e.message, 'error'); } };
+
+  // Show/hide the comparison-mode selector on the client dashboard. Optimistic,
+  // reverted if the save fails.
+  const toggleCompare = async (v) => {
+    setCompareVisible(v);
+    try {
+      await put('/api/clients', { id: clientId, compare_visible: v });
+      push(v ? 'Comparison modes visible to client' : 'Comparison modes hidden from client', 'success');
+      load();
+    } catch (e) { setCompareVisible(!v); push(e.message, 'error'); }
+  };
 
   const meta = SERVICE_META[service];
   const services = client?.services || SERVICE_ORDER;
@@ -147,6 +160,16 @@ export default function ClientDetail() {
         </div>
         <div>
           <TargetsCard clientId={clientId} service={service} targets={targets} targetsVisible={client.targets_visible !== false} onChanged={load} />
+
+          <SectionCard title='Client dashboard' subtitle='What the client sees on their dashboard.' icon={Eye} accent={meta.accent} className='mt-6'
+            actions={<SectionToggle visible={compareVisible} onChange={toggleCompare} accent={meta.accent} />}>
+            <div className='text-sm font-medium text-slate-700 dark:text-slate-300'>Comparison modes</div>
+            <p className='text-xs text-slate-400 dark:text-slate-500 mt-1 leading-relaxed'>
+              The MoM, YoY, rolling-average, vs-target and custom-range selector.
+              Hidden, the client still sees month-over-month change on each metric —
+              only the ability to switch modes is removed.
+            </p>
+          </SectionCard>
         </div>
       </div>
 

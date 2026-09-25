@@ -7,6 +7,7 @@ import { KeywordRankingEditor } from '../components/KeywordRanking';
 import { KeywordStatusTracker } from '../components/KeywordStatus';
 import { SectionToggle } from '../components/SectionToggle';
 import { DraggableSection } from '../components/DraggableSection';
+import { CopyFromMonth } from '../components/CopyFromMonth';
 import { SERVICE_META } from '../lib/constants';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -80,6 +81,9 @@ export default function ReportEditor() {
   const [sectionOrder, setSectionOrder] = useState([]);
   const [gaMetrics, setGaMetrics] = useState([]);
   const [gaMetricsTitle, setGaMetricsTitle] = useState('GA Metrics');
+  // Free-form closing section: an editable heading plus bullet points.
+  const [notesTitle, setNotesTitle] = useState('Notes');
+  const [notesPoints, setNotesPoints] = useState([]);
 
   useEffect(() => {
     (async () => {
@@ -151,6 +155,8 @@ export default function ReportEditor() {
         setSectionOrder(rep.lists?._section_order || []);
         setGaMetrics(rep.lists?.ga_metrics || []);
         setGaMetricsTitle(rep.lists?.ga_metrics_title || 'GA Metrics');
+        setNotesTitle(rep.lists?.notes_title || 'Notes');
+        setNotesPoints(Array.isArray(rep.lists?.notes_points) ? rep.lists.notes_points : []);
         if (meta.hasPlatforms && !activePlatform) setSearchParams(prev => { const n = new URLSearchParams(prev); n.set('platform', meta.platforms[0].key); return n; }, { replace: true });
         try { const anns = await get(`/api/annotations?clientId=${rep.client_id}&service=${rep.service}`); setAnnotations(anns || []); } catch {}
       } catch (e) { push(e.message, 'error'); }
@@ -192,7 +198,7 @@ export default function ReportEditor() {
         (breakdown[p.key] || []).forEach((b) => { if (b.name) breakdowns[p.key][b.name] = b.value; });
       });
     }
-    return { metrics: cleanObj(metrics), breakdowns: cleanObj(breakdowns), lists: { ...lists, keyword_rankings: keywordRankings, keyword_status: keywordStatus, work_done: workDone, ga_metrics: gaMetrics, ga_metrics_title: gaMetricsTitle, _section_visibility: sectionVisibility, _section_order: sectionOrder }, achievements };
+    return { metrics: cleanObj(metrics), breakdowns: cleanObj(breakdowns), lists: { ...lists, keyword_rankings: keywordRankings, keyword_status: keywordStatus, work_done: workDone, ga_metrics: gaMetrics, ga_metrics_title: gaMetricsTitle, notes_title: notesTitle, notes_points: notesPoints, _section_visibility: sectionVisibility, _section_order: sectionOrder }, achievements };
   };
 
   const doSave = async (action, note) => {
@@ -214,10 +220,10 @@ export default function ReportEditor() {
 
   // Default section order based on service
   const defaultSections = report.service === 'seo'
-    ? ['workDone', 'coreMetrics', 'gaMetrics', 'customMetrics', 'breakdown', 'keywordRankings', 'list_backlinks', 'list_published_pages', 'achievements', 'annotations']
+    ? ['workDone', 'coreMetrics', 'gaMetrics', 'customMetrics', 'breakdown', 'keywordRankings', 'list_backlinks', 'list_published_pages', 'achievements', 'notes', 'annotations']
     : report.service === 'orm'
-    ? ['coreMetrics', 'customMetrics', 'breakdown', 'backlinkActivity', 'list_brand_keywords', 'list_reviews', 'list_backlinks', 'keywordStatus', 'achievements', 'annotations']
-    : ['coreMetrics', 'customMetrics', 'breakdown', 'list_top_posts', 'achievements', 'annotations'];
+    ? ['coreMetrics', 'customMetrics', 'breakdown', 'backlinkActivity', 'list_brand_keywords', 'list_reviews', 'list_backlinks', 'keywordStatus', 'achievements', 'notes', 'annotations']
+    : ['coreMetrics', 'customMetrics', 'breakdown', 'list_top_posts', 'achievements', 'notes', 'annotations'];
 
   const activeOrder = sectionOrder.length ? sectionOrder : defaultSections;
 
@@ -332,7 +338,12 @@ export default function ReportEditor() {
       {/* Custom metrics */}
       <DraggableSection id='customMetrics' onReorder={handleReorder} accent={accent} order={getSectionOrder('customMetrics')}>
       <SectionCard title='Custom metrics' subtitle='Add one-off or recurring metrics unique to this client. Carry forward automatically.' icon={Tag} accent={accent}
-        actions={<><SectionToggle visible={sectionVisibility.customMetrics} onChange={(v) => setSectionVisibility((s) => ({ ...s, customMetrics: v }))} accent={accent} /><Button size='sm' variant='outline' onClick={() => addCustom(meta, custom, setCustom, activePlatform)}><Plus className='w-3.5 h-3.5' /> Add metric</Button></>} className={`mb-6 ${sectionVisibility.customMetrics === false ? 'opacity-50' : ''}`}>
+        actions={<><SectionToggle visible={sectionVisibility.customMetrics} onChange={(v) => setSectionVisibility((s) => ({ ...s, customMetrics: v }))} accent={accent} /><CopyFromMonth report={report} accent={accent} what='Custom metrics' onCopy={(src) => {
+          const next = copyCustomMetrics(src, meta);
+          setCustom(next);
+          const n = countRows(next);
+          push(`${n} custom metric${n === 1 ? '' : 's'} copied from ${src.period_label}`, n ? 'success' : 'info');
+        }} /><Button size='sm' variant='outline' onClick={() => addCustom(meta, custom, setCustom, activePlatform)}><Plus className='w-3.5 h-3.5' /> Add metric</Button></>} className={`mb-6 ${sectionVisibility.customMetrics === false ? 'opacity-50' : ''}`}>
         <CustomMetricsList meta={meta} custom={custom} setCustom={setCustom} activePlatform={activePlatform} />
       </SectionCard>
       </DraggableSection>
@@ -340,7 +351,12 @@ export default function ReportEditor() {
       {/* Breakdown */}
       <DraggableSection id='breakdown' onReorder={handleReorder} accent={accent} order={getSectionOrder('breakdown')}>
       <SectionCard title={meta.breakdown.label} subtitle={`Month-by-month counts by ${meta.breakdown.itemNoun}. Add new categories as your package evolves.`} icon={ListChecks} accent={accent}
-        actions={<><SectionToggle visible={sectionVisibility.breakdown} onChange={(v) => setSectionVisibility((s) => ({ ...s, breakdown: v }))} accent={accent} /><Button size='sm' variant='outline' onClick={() => addCategory(meta, breakdown, setBreakdown, activePlatform)}><Plus className='w-3.5 h-3.5' /> Add {meta.breakdown.itemNoun}</Button></>} className={`mb-6 ${sectionVisibility.breakdown === false ? 'opacity-50' : ''}`}>
+        actions={<><SectionToggle visible={sectionVisibility.breakdown} onChange={(v) => setSectionVisibility((s) => ({ ...s, breakdown: v }))} accent={accent} /><CopyFromMonth report={report} accent={accent} what={meta.breakdown.label} onCopy={(src) => {
+          const next = copyBreakdown(src, meta, 'primary');
+          setBreakdown(next);
+          const n = countRows(next);
+          push(`${n} ${meta.breakdown.itemNoun}${n === 1 ? '' : 's'} copied from ${src.period_label}`, n ? 'success' : 'info');
+        }} /><Button size='sm' variant='outline' onClick={() => addCategory(meta, breakdown, setBreakdown, activePlatform)}><Plus className='w-3.5 h-3.5' /> Add {meta.breakdown.itemNoun}</Button></>} className={`mb-6 ${sectionVisibility.breakdown === false ? 'opacity-50' : ''}`}>
         <BreakdownEditor meta={meta} breakdown={breakdown} setBreakdown={setBreakdown} activePlatform={activePlatform} />
       </SectionCard>
       </DraggableSection>
@@ -349,7 +365,12 @@ export default function ReportEditor() {
       {meta.breakdown2 && (
         <DraggableSection id='backlinkActivity' onReorder={handleReorder} accent={accent} order={getSectionOrder('backlinkActivity')}>
         <SectionCard title={meta.breakdown2.label} subtitle={`Month-by-month counts by ${meta.breakdown2.itemNoun}. Add new categories as your package evolves.`} icon={ListChecks} accent={accent}
-          actions={<><SectionToggle visible={sectionVisibility.backlinkActivity} onChange={(v) => setSectionVisibility((s) => ({ ...s, backlinkActivity: v }))} accent={accent} /><Button size='sm' variant='outline' onClick={() => {
+          actions={<><SectionToggle visible={sectionVisibility.backlinkActivity} onChange={(v) => setSectionVisibility((s) => ({ ...s, backlinkActivity: v }))} accent={accent} /><CopyFromMonth report={report} accent={accent} what={meta.breakdown2.label} onCopy={(src) => {
+            const next = copyBreakdown(src, meta, 'backlink');
+            setBacklinkBreakdown(next);
+            const n = countRows(next);
+            push(`${n} ${meta.breakdown2.itemNoun}${n === 1 ? '' : 's'} copied from ${src.period_label}`, n ? 'success' : 'info');
+          }} /><Button size='sm' variant='outline' onClick={() => {
             if (!meta.hasPlatforms) setBacklinkBreakdown((b) => [...b, { name: '', value: '' }]);
           }}><Plus className='w-3.5 h-3.5' /> Add {meta.breakdown2.itemNoun}</Button></>} className={`mb-6 ${sectionVisibility.backlinkActivity === false ? 'opacity-50' : ''}`}>
           <BreakdownEditor meta={meta} breakdown={backlinkBreakdown} setBreakdown={setBacklinkBreakdown} activePlatform={activePlatform} />
@@ -397,6 +418,25 @@ export default function ReportEditor() {
             <div key={i} className='flex gap-2'>
               <Input value={a} onChange={(e) => setAchievements((arr) => arr.map((x, j) => (j === i ? e.target.value : x)))} placeholder='e.g. Secured 3 guest posts on DR-60+ sites' />
               <button onClick={() => setAchievements((arr) => arr.filter((_, j) => j !== i))} className='p-2 rounded-lg text-slate-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 hover:text-rose-600'><Trash2 className='w-4 h-4' /></button>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+      </DraggableSection>
+
+      {/* Notes — free-form closing section with an editable heading */}
+      <DraggableSection id='notes' onReorder={handleReorder} accent={accent} order={getSectionOrder('notes')}>
+      <SectionCard title={notesTitle || 'Notes'} subtitle='Your own heading and bullet points, shown at the end of the client report.' icon={ListChecks} accent={accent}
+        actions={<><SectionToggle visible={sectionVisibility.notes} onChange={(v) => setSectionVisibility((s) => ({ ...s, notes: v }))} accent={accent} /><Button size='sm' variant='outline' onClick={() => setNotesPoints((p) => [...p, ''])}><Plus className='w-3.5 h-3.5' /> Add point</Button></>} className={`mb-6 ${sectionVisibility.notes === false ? 'opacity-50' : ''}`}>
+        <div className='space-y-3'>
+          <Field label='Section title'>
+            <Input value={notesTitle} onChange={(e) => setNotesTitle(e.target.value)} placeholder='Notes' className='font-semibold' />
+          </Field>
+          {notesPoints.length === 0 && <p className='text-sm text-slate-400 dark:text-slate-500'>No points yet. Add what you want the client to read here.</p>}
+          {notesPoints.map((point, i) => (
+            <div key={i} className='flex gap-2'>
+              <Input value={point} onChange={(e) => setNotesPoints((arr) => arr.map((x, j) => (j === i ? e.target.value : x)))} placeholder='e.g. Recommend continuing the current content cadence' />
+              <button onClick={() => setNotesPoints((arr) => arr.filter((_, j) => j !== i))} className='p-2 rounded-lg text-slate-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 hover:text-rose-600'><Trash2 className='w-4 h-4' /></button>
             </div>
           ))}
         </div>
@@ -491,6 +531,56 @@ function addCustom(meta, custom, setCustom, activePlatform) {
 function addCategory(meta, breakdown, setBreakdown, activePlatform) {
   if (!meta.hasPlatforms) setBreakdown((b) => [...b, { name: '', value: '' }]);
   else setBreakdown((b) => ({ ...b, [activePlatform]: [...(b[activePlatform] || []), { name: '', value: '' }] }));
+}
+
+// --- copy-from-previous-month -------------------------------------------------
+// These rebuild a section's editor state from a previously saved report. They
+// replace rather than merge: the point is to re-baseline on an earlier month.
+
+// Any metric key that is not one of the service's core metrics.
+function copyCustomMetrics(src, meta) {
+  const core = meta.coreMetrics.map((m) => m.key);
+  const pick = (bag) => Object.entries(bag || {})
+    .filter(([k]) => !core.includes(k))
+    .map(([name, value]) => ({ name, value: value ?? '' }));
+
+  if (!meta.hasPlatforms) return pick(src.metrics);
+  const out = {};
+  meta.platforms.forEach((p) => { out[p.key] = pick(src.metrics?.[p.key]); });
+  return out;
+}
+
+// `target` is 'primary' (the section's main breakdown) or 'backlink' (ORM's
+// second breakdown). buildPayload merges both into a single flat `breakdowns`
+// object, so they have to be split apart again on the way back in — mirroring
+// the split done in the load effect above.
+function copyBreakdown(src, meta, target) {
+  const entries = Object.entries(src.breakdowns || {});
+  const toRows = (list) => list.map(([name, value]) => ({ name, value: value ?? '' }));
+
+  if (meta.hasPlatforms) {
+    const out = {};
+    meta.platforms.forEach((p) => { out[p.key] = toRows(Object.entries(src.breakdowns?.[p.key] || {})); });
+    return out;
+  }
+
+  if (meta.breakdown2) {
+    const backlinkDefaults = meta.breakdown2.defaults;
+    const reviewDefaults = meta.breakdown.defaults;
+    if (target === 'backlink') {
+      return toRows(entries.filter(([name]) => backlinkDefaults.includes(name) || (!reviewDefaults.includes(name) && name)));
+    }
+    return toRows(entries.filter(([name]) => !backlinkDefaults.includes(name)));
+  }
+
+  return toRows(entries);
+}
+
+// Rows copied, for the confirmation toast. Handles both the flat array shape
+// and the per-platform object shape.
+function countRows(value) {
+  if (Array.isArray(value)) return value.length;
+  return Object.values(value || {}).reduce((n, arr) => n + (Array.isArray(arr) ? arr.length : 0), 0);
 }
 function seedDefaults(br, meta) {
   const defs = meta.breakdown.defaults;

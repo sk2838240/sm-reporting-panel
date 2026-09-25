@@ -113,6 +113,7 @@ export default withHandler('clients', async (req, res) => {
       allowed.objectives = fields.objectives.map((o) => String(o ?? '').slice(0, 500)).filter(Boolean);
     }
     if ('targets_visible' in fields) allowed.targets_visible = !!fields.targets_visible;
+    if ('compare_visible' in fields) allowed.compare_visible = !!fields.compare_visible;
     if (Object.keys(allowed).length === 0) return res.status(400).json({ error: 'No fields to update' });
     const { data, error } = await supabase.from('clients').update(allowed).eq('id', id).select().single();
     if (error) throw error;

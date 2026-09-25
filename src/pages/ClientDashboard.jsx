@@ -29,7 +29,13 @@ export default function ClientDashboard() {
   const [client, setClient] = useState(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const service = searchParams.get('service') || 'orm';
-  const mode = searchParams.get('mode') || 'mom';
+  // Compare is hideable per client (clients.compare_visible). When hidden the
+  // mode selector is removed and we pin to MoM, so delta pills and comparison
+  // bars still render — the client sees month-over-month movement, just without
+  // the ability to switch modes.
+  const compareVisible = client ? client.compare_visible !== false : true;
+  const modeParam = searchParams.get('mode') || 'mom';
+  const mode = compareVisible ? modeParam : 'mom';
   const reportIdFromUrl = searchParams.get('report');
   const [reports, setReports] = useState([]);
   const [targets, setTargets] = useState([]);
@@ -106,6 +112,10 @@ export default function ClientDashboard() {
   // Custom metrics from the latest report
   const customMetricKeys = selectedReport ? Object.keys(selectedReport.metrics || {}).filter(k => !meta.coreMetrics.some(m => m.key === k)) : [];
 
+  // Free-form closing notes section (agency-authored heading + bullet points).
+  const notesTitle = selectedReport?.lists?.notes_title || 'Notes';
+  const notesPoints = (selectedReport?.lists?.notes_points || []).filter((p) => p && String(p).trim());
+
   return (
     <div>
       {/* Only shown when an admin is previewing a specific client's dashboard.
@@ -167,14 +177,16 @@ export default function ClientDashboard() {
             </div>
           </div>
 
-          {/* Comparison mode selector */}
-          <div className='flex flex-wrap items-center gap-2 mb-5 no-print'>
-            <span className='text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mr-1'>Compare</span>
-            <div className='flex flex-wrap gap-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-1'>
-              {modes.map((m) => <button key={m.key} onClick={() => setSearchParams(prev => { const n = new URLSearchParams(prev); n.set('mode', m.key); return n; })} className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${mode === m.key ? 'bg-slate-900 dark:bg-slate-700 text-white' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}><m.icon className='w-3.5 h-3.5' /> {m.label}</button>)}
+          {/* Comparison mode selector — hidden when the agency turns it off for this client */}
+          {compareVisible && (
+            <div className='flex flex-wrap items-center gap-2 mb-5 no-print'>
+              <span className='text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mr-1'>Compare</span>
+              <div className='flex flex-wrap gap-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-1'>
+                {modes.map((m) => <button key={m.key} onClick={() => setSearchParams(prev => { const n = new URLSearchParams(prev); n.set('mode', m.key); return n; })} className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${mode === m.key ? 'bg-slate-900 dark:bg-slate-700 text-white' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}><m.icon className='w-3.5 h-3.5' /> {m.label}</button>)}
+              </div>
             </div>
-          </div>
-          {mode === 'custom' && (
+          )}
+          {compareVisible && mode === 'custom' && (
             <div className='grid sm:grid-cols-2 gap-3 mb-5 no-print'>
               <CustomRangePicker label='Range A' start={custom.aStart} end={custom.aEnd} onChange={(s, e) => setCustom((c) => ({ ...c, aStart: s, aEnd: e }))} />
               <CustomRangePicker label='Range B' start={custom.bStart} end={custom.bEnd} onChange={(s, e) => setCustom((c) => ({ ...c, bStart: s, bEnd: e }))} />
@@ -321,6 +333,23 @@ export default function ClientDashboard() {
             {show('achievements') && (
               <div style={{ order: getOrder('achievements') }} className='mb-6'>
                 <AchievementsSection key={service} series={series} accent={meta.accent} />
+              </div>
+            )}
+
+            {/* Notes — free-form closing section, heading set by the agency */}
+            {show('notes') && notesPoints.length > 0 && (
+              <div style={{ order: getOrder('notes') }} className='mb-6'>
+                <div className='rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-5'>
+                  <h3 className='text-[15px] font-semibold text-slate-900 dark:text-slate-100 mb-3'>{notesTitle}</h3>
+                  <ul className='space-y-2'>
+                    {notesPoints.map((point, i) => (
+                      <li key={i} className='flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300'>
+                        <span className='mt-1.5 w-1.5 h-1.5 rounded-full shrink-0' style={{ background: meta.accent }} />
+                        {point}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               </div>
             )}
           </div>
