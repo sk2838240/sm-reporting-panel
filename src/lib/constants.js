@@ -26,6 +26,24 @@ export const SERVICE_META = {
           { key: 'type', label: 'Type', type: 'text', placeholder: 'Guest post / Blog / Press release' },
           { key: 'note', label: 'Note', type: 'text', placeholder: 'Additional notes' },
         ] },
+      // GA4 tables. Both share the same four numeric columns; only the first
+      // column differs (page URL vs country).
+      { key: 'ga_top_pages', label: 'Top Pages (GA4)', addLabel: 'Add page',
+        columns: [
+          { key: 'url', label: 'Page URL', type: 'text', placeholder: '/services or https://...' },
+          { key: 'sessions', label: 'Sessions', type: 'number', placeholder: '0' },
+          { key: 'active_users', label: 'Active Users', type: 'number', placeholder: '0' },
+          { key: 'engagement_rate', label: 'Engagement Rate (%)', type: 'number', placeholder: 'e.g. 58.4' },
+          { key: 'bounce_rate', label: 'Bounce Rate (%)', type: 'number', placeholder: '≈ 100 − engagement' },
+        ] },
+      { key: 'ga_demographics', label: 'Demographic Details', addLabel: 'Add country',
+        columns: [
+          { key: 'country', label: 'Country', type: 'text', placeholder: 'India' },
+          { key: 'sessions', label: 'Sessions', type: 'number', placeholder: '0' },
+          { key: 'active_users', label: 'Active Users', type: 'number', placeholder: '0' },
+          { key: 'engagement_rate', label: 'Engagement Rate (%)', type: 'number', placeholder: 'e.g. 58.4' },
+          { key: 'bounce_rate', label: 'Bounce Rate (%)', type: 'number', placeholder: '≈ 100 − engagement' },
+        ] },
     ],
     // GA Metrics — editable name+value pairs shown like core metrics
     gaMetrics: true,
@@ -102,3 +120,14 @@ export const SERVICE_ORDER = ['seo', 'orm', 'social'];
 export function getMeta(service) { return SERVICE_META[service]; }
 export function coreKeys(service) { return (SERVICE_META[service]?.coreMetrics || []).map(m => m.key); }
 export function isCore(service, key) { return coreKeys(service).includes(key); }
+
+// Repeating free-form report sections: an editable heading plus bullet points.
+// 'notes' keeps its original key names so reports saved before the other four
+// existed still load correctly.
+export const NOTE_SECTIONS = [
+  { id: 'notes', titleKey: 'notes_title', pointsKey: 'notes_points', fallback: 'Notes' },
+  { id: 'notes2', titleKey: 'notes2_title', pointsKey: 'notes2_points', fallback: 'Notes 2' },
+  { id: 'notes3', titleKey: 'notes3_title', pointsKey: 'notes3_points', fallback: 'Notes 3' },
+  { id: 'notes4', titleKey: 'notes4_title', pointsKey: 'notes4_points', fallback: 'Notes 4' },
+  { id: 'notes5', titleKey: 'notes5_title', pointsKey: 'notes5_points', fallback: 'Notes 5' },
+];

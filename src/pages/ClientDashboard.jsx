@@ -7,7 +7,7 @@ import { FullLoader, EmptyState, useToast, BackButton } from '../components/ui';
 import { TrendChart, ComparisonBars } from '../components/charts';
 import { KeywordRankingTable } from '../components/KeywordRanking';
 import { KeywordStatusView } from '../components/KeywordStatus';
-import { SERVICE_META, SERVICE_ORDER } from '../lib/constants';
+import { SERVICE_META, SERVICE_ORDER, NOTE_SECTIONS } from '../lib/constants';
 import { fmtNum, fmtRaw, fmtPct, shortPeriod, formatDate } from '../lib/format';
 import { getValue, momDelta, yoyDelta, trailingAvg, vsTarget, compare, rangeAggregate } from '../lib/comparisons';
 
@@ -112,9 +112,13 @@ export default function ClientDashboard() {
   // Custom metrics from the latest report
   const customMetricKeys = selectedReport ? Object.keys(selectedReport.metrics || {}).filter(k => !meta.coreMetrics.some(m => m.key === k)) : [];
 
-  // Free-form closing notes section (agency-authored heading + bullet points).
-  const notesTitle = selectedReport?.lists?.notes_title || 'Notes';
-  const notesPoints = (selectedReport?.lists?.notes_points || []).filter((p) => p && String(p).trim());
+  // Free-form sections (agency-authored heading + bullet points). Empty ones
+  // are dropped so a blank section never renders on the client dashboard.
+  const notes = NOTE_SECTIONS.map((s) => ({
+    id: s.id,
+    title: selectedReport?.lists?.[s.titleKey] || s.fallback,
+    points: (selectedReport?.lists?.[s.pointsKey] || []).filter((p) => p && String(p).trim()),
+  }));
 
   return (
     <div>
@@ -336,13 +340,13 @@ export default function ClientDashboard() {
               </div>
             )}
 
-            {/* Notes — free-form closing section, heading set by the agency */}
-            {show('notes') && notesPoints.length > 0 && (
-              <div style={{ order: getOrder('notes') }} className='mb-6'>
+            {/* Free-form sections — heading set by the agency, one card each */}
+            {notes.map((note) => (show(note.id) && note.points.length > 0 ? (
+              <div key={note.id} style={{ order: getOrder(note.id) }} className='mb-6'>
                 <div className='rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-5'>
-                  <h3 className='text-[15px] font-semibold text-slate-900 dark:text-slate-100 mb-3'>{notesTitle}</h3>
+                  <h3 className='text-[15px] font-semibold text-slate-900 dark:text-slate-100 mb-3'>{note.title}</h3>
                   <ul className='space-y-2'>
-                    {notesPoints.map((point, i) => (
+                    {note.points.map((point, i) => (
                       <li key={i} className='flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300'>
                         <span className='mt-1.5 w-1.5 h-1.5 rounded-full shrink-0' style={{ background: meta.accent }} />
                         {point}
@@ -351,7 +355,7 @@ export default function ClientDashboard() {
                   </ul>
                 </div>
               </div>
-            )}
+            ) : null))}
           </div>
         </>
       )}
@@ -524,6 +528,31 @@ function ListsSection({ meta, series, listPeriod, visibleLists = {} }) {
                   rows.map((r, i) => <div key={i} className='rounded-lg border border-slate-100 dark:border-slate-700 p-2.5'><div className='flex justify-between text-xs'><span className='font-semibold text-slate-700 dark:text-slate-300'>{r.platform} · {r.type}</span><span className='text-slate-400 dark:text-slate-500'>{formatDate(r.date)}</span></div>{r.caption && <p className='text-xs text-slate-600 dark:text-slate-400 mt-1 line-clamp-2'>{r.caption}</p>}<div className='flex gap-3 text-[11px] text-slate-400 dark:text-slate-500 mt-1'><span>❤ {fmtRaw(r.likes)}</span><span>💬 {fmtRaw(r.comments)}</span><span>👁 {fmtRaw(r.reach)}</span></div></div>)
                 ) : l.key === 'published_pages' ? (
                   rows.map((r, i) => <div key={i} className='rounded-lg border border-slate-100 dark:border-slate-700 p-2.5'><div className='flex justify-between text-xs'><a href={r.live_link || '#'} target='_blank' rel='noopener noreferrer' className='font-semibold text-indigo-600 dark:text-indigo-400 hover:underline truncate'>{r.blog_title || r.live_link || '—'}</a><span className='text-slate-400 dark:text-slate-500 shrink-0'>{formatDate(r.published_date)}</span></div><div className='flex items-center gap-2 text-[11px] text-slate-400 dark:text-slate-500 mt-1'>{r.type && <span className='inline-flex items-center gap-1 rounded-md bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 font-medium'>{r.type}</span>}{r.note && <span className='truncate'>{r.note}</span>}</div></div>)
+                ) : l.key === 'ga_top_pages' || l.key === 'ga_demographics' ? (
+                  /* GA4 tables — driven straight off the column definitions so
+                     both share one renderer. */
+                  <div className='overflow-x-auto'>
+                    <table className='w-full text-sm border-collapse'>
+                      <thead>
+                        <tr className='border-b border-slate-200 dark:border-slate-700'>
+                          {l.columns.map((c) => (
+                            <th key={c.key} className={`py-2 text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap ${c.type === 'number' ? 'text-right' : 'text-left'}`}>{c.label}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((r, i) => (
+                          <tr key={i} className='border-b border-slate-50 dark:border-slate-700/50'>
+                            {l.columns.map((c) => (
+                              <td key={c.key} className={`py-1.5 whitespace-nowrap ${c.type === 'number' ? 'text-right text-slate-600 dark:text-slate-400' : 'text-left font-medium text-slate-700 dark:text-slate-300'}`}>
+                                {c.type === 'number' ? fmtRaw(r[c.key]) : (r[c.key] || '—')}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 ) : (
                   rows.map((r, i) => <div key={i} className='flex items-center justify-between text-sm border-b border-slate-50 dark:border-slate-700/50 py-1.5'><span className='text-slate-700 dark:text-slate-300 truncate'>{r.url || r.anchor_text || '—'}</span><span className='text-xs text-slate-400 dark:text-slate-500 ml-2 shrink-0'>{r.type || ''} · {formatDate(r.date)}</span></div>)
                 )}

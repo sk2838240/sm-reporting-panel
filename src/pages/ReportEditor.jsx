@@ -8,7 +8,7 @@ import { KeywordStatusTracker } from '../components/KeywordStatus';
 import { SectionToggle } from '../components/SectionToggle';
 import { DraggableSection } from '../components/DraggableSection';
 import { CopyFromMonth } from '../components/CopyFromMonth';
-import { SERVICE_META } from '../lib/constants';
+import { SERVICE_META, NOTE_SECTIONS } from '../lib/constants';
 import { useAuth } from '../contexts/AuthContext';
 
 function cleanVal(v) { if (v === '' || v === null || v === undefined) return null; const n = Number(v); return isNaN(n) ? v : n; }
@@ -49,6 +49,29 @@ function splitBreakdown(rawBreakdowns, meta) {
   return out;
 }
 
+// Repeating free-form sections: an editable heading plus bullet points.
+// The section list is shared with the dashboard renderer.
+
+function blankNotes() {
+  return Object.fromEntries(NOTE_SECTIONS.map((s) => [s.id, { title: s.fallback, points: [] }]));
+}
+
+function notesFromReport(lists) {
+  return Object.fromEntries(NOTE_SECTIONS.map((s) => [s.id, {
+    title: lists?.[s.titleKey] || s.fallback,
+    points: Array.isArray(lists?.[s.pointsKey]) ? lists[s.pointsKey] : [],
+  }]));
+}
+
+function notesToPayload(notes) {
+  const out = {};
+  NOTE_SECTIONS.forEach((s) => {
+    out[s.titleKey] = notes?.[s.id]?.title ?? s.fallback;
+    out[s.pointsKey] = notes?.[s.id]?.points ?? [];
+  });
+  return out;
+}
+
 export default function ReportEditor() {
   const { reportId } = useParams();
   const nav = useNavigate();
@@ -81,9 +104,8 @@ export default function ReportEditor() {
   const [sectionOrder, setSectionOrder] = useState([]);
   const [gaMetrics, setGaMetrics] = useState([]);
   const [gaMetricsTitle, setGaMetricsTitle] = useState('GA Metrics');
-  // Free-form closing section: an editable heading plus bullet points.
-  const [notesTitle, setNotesTitle] = useState('Notes');
-  const [notesPoints, setNotesPoints] = useState([]);
+  // Five free-form sections, keyed by id so they share one piece of state.
+  const [notes, setNotes] = useState(blankNotes);
 
   useEffect(() => {
     (async () => {
@@ -155,8 +177,7 @@ export default function ReportEditor() {
         setSectionOrder(rep.lists?._section_order || []);
         setGaMetrics(rep.lists?.ga_metrics || []);
         setGaMetricsTitle(rep.lists?.ga_metrics_title || 'GA Metrics');
-        setNotesTitle(rep.lists?.notes_title || 'Notes');
-        setNotesPoints(Array.isArray(rep.lists?.notes_points) ? rep.lists.notes_points : []);
+        setNotes(notesFromReport(rep.lists));
         if (meta.hasPlatforms && !activePlatform) setSearchParams(prev => { const n = new URLSearchParams(prev); n.set('platform', meta.platforms[0].key); return n; }, { replace: true });
         try { const anns = await get(`/api/annotations?clientId=${rep.client_id}&service=${rep.service}`); setAnnotations(anns || []); } catch {}
       } catch (e) { push(e.message, 'error'); }
@@ -198,7 +219,7 @@ export default function ReportEditor() {
         (breakdown[p.key] || []).forEach((b) => { if (b.name) breakdowns[p.key][b.name] = b.value; });
       });
     }
-    return { metrics: cleanObj(metrics), breakdowns: cleanObj(breakdowns), lists: { ...lists, keyword_rankings: keywordRankings, keyword_status: keywordStatus, work_done: workDone, ga_metrics: gaMetrics, ga_metrics_title: gaMetricsTitle, notes_title: notesTitle, notes_points: notesPoints, _section_visibility: sectionVisibility, _section_order: sectionOrder }, achievements };
+    return { metrics: cleanObj(metrics), breakdowns: cleanObj(breakdowns), lists: { ...lists, keyword_rankings: keywordRankings, keyword_status: keywordStatus, work_done: workDone, ga_metrics: gaMetrics, ga_metrics_title: gaMetricsTitle, ...notesToPayload(notes), _section_visibility: sectionVisibility, _section_order: sectionOrder }, achievements };
   };
 
   const doSave = async (action, note) => {
@@ -220,10 +241,10 @@ export default function ReportEditor() {
 
   // Default section order based on service
   const defaultSections = report.service === 'seo'
-    ? ['workDone', 'coreMetrics', 'gaMetrics', 'customMetrics', 'breakdown', 'keywordRankings', 'list_backlinks', 'list_published_pages', 'achievements', 'notes', 'annotations']
+    ? ['workDone', 'coreMetrics', 'gaMetrics', 'list_ga_top_pages', 'list_ga_demographics', 'customMetrics', 'breakdown', 'keywordRankings', 'list_backlinks', 'list_published_pages', 'achievements', 'notes', 'notes2', 'notes3', 'notes4', 'notes5', 'annotations']
     : report.service === 'orm'
-    ? ['coreMetrics', 'customMetrics', 'breakdown', 'backlinkActivity', 'list_brand_keywords', 'list_reviews', 'list_backlinks', 'keywordStatus', 'achievements', 'notes', 'annotations']
-    : ['coreMetrics', 'customMetrics', 'breakdown', 'list_top_posts', 'achievements', 'notes', 'annotations'];
+    ? ['coreMetrics', 'customMetrics', 'breakdown', 'backlinkActivity', 'list_brand_keywords', 'list_reviews', 'list_backlinks', 'keywordStatus', 'achievements', 'notes', 'notes2', 'notes3', 'notes4', 'notes5', 'annotations']
+    : ['coreMetrics', 'customMetrics', 'breakdown', 'list_top_posts', 'achievements', 'notes', 'notes2', 'notes3', 'notes4', 'notes5', 'annotations'];
 
   const activeOrder = sectionOrder.length ? sectionOrder : defaultSections;
 
@@ -424,24 +445,31 @@ export default function ReportEditor() {
       </SectionCard>
       </DraggableSection>
 
-      {/* Notes — free-form closing section with an editable heading */}
-      <DraggableSection id='notes' onReorder={handleReorder} accent={accent} order={getSectionOrder('notes')}>
-      <SectionCard title={notesTitle || 'Notes'} subtitle='Your own heading and bullet points, shown at the end of the client report.' icon={ListChecks} accent={accent}
-        actions={<><SectionToggle visible={sectionVisibility.notes} onChange={(v) => setSectionVisibility((s) => ({ ...s, notes: v }))} accent={accent} /><Button size='sm' variant='outline' onClick={() => setNotesPoints((p) => [...p, ''])}><Plus className='w-3.5 h-3.5' /> Add point</Button></>} className={`mb-6 ${sectionVisibility.notes === false ? 'opacity-50' : ''}`}>
-        <div className='space-y-3'>
-          <Field label='Section title'>
-            <Input value={notesTitle} onChange={(e) => setNotesTitle(e.target.value)} placeholder='Notes' className='font-semibold' />
-          </Field>
-          {notesPoints.length === 0 && <p className='text-sm text-slate-400 dark:text-slate-500'>No points yet. Add what you want the client to read here.</p>}
-          {notesPoints.map((point, i) => (
-            <div key={i} className='flex gap-2'>
-              <Input value={point} onChange={(e) => setNotesPoints((arr) => arr.map((x, j) => (j === i ? e.target.value : x)))} placeholder='e.g. Recommend continuing the current content cadence' />
-              <button onClick={() => setNotesPoints((arr) => arr.filter((_, j) => j !== i))} className='p-2 rounded-lg text-slate-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 hover:text-rose-600'><Trash2 className='w-4 h-4' /></button>
+      {/* Free-form sections — editable heading plus bullet points */}
+      {NOTE_SECTIONS.map((s) => {
+        const note = notes[s.id] || { title: s.fallback, points: [] };
+        const points = note.points || [];
+        const setNote = (patch) => setNotes((n) => ({ ...n, [s.id]: { ...n[s.id], ...patch } }));
+        return (
+          <DraggableSection key={s.id} id={s.id} onReorder={handleReorder} accent={accent} order={getSectionOrder(s.id)}>
+          <SectionCard title={note.title || s.fallback} subtitle='Your own heading and bullet points, shown on the client report.' icon={ListChecks} accent={accent}
+            actions={<><SectionToggle visible={sectionVisibility[s.id]} onChange={(v) => setSectionVisibility((prev) => ({ ...prev, [s.id]: v }))} accent={accent} /><Button size='sm' variant='outline' onClick={() => setNote({ points: [...points, ''] })}><Plus className='w-3.5 h-3.5' /> Add point</Button></>} className={`mb-6 ${sectionVisibility[s.id] === false ? 'opacity-50' : ''}`}>
+            <div className='space-y-3'>
+              <Field label='Section title'>
+                <Input value={note.title} onChange={(e) => setNote({ title: e.target.value })} placeholder={s.fallback} className='font-semibold' />
+              </Field>
+              {points.length === 0 && <p className='text-sm text-slate-400 dark:text-slate-500'>No points yet. Add what you want the client to read here.</p>}
+              {points.map((point, i) => (
+                <div key={i} className='flex gap-2'>
+                  <Input value={point} onChange={(e) => setNote({ points: points.map((x, j) => (j === i ? e.target.value : x)) })} placeholder='e.g. Recommend continuing the current content cadence' />
+                  <button onClick={() => setNote({ points: points.filter((_, j) => j !== i) })} className='p-2 rounded-lg text-slate-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 hover:text-rose-600'><Trash2 className='w-4 h-4' /></button>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      </SectionCard>
-      </DraggableSection>
+          </SectionCard>
+          </DraggableSection>
+        );
+      })}
 
       {/* Additional Inputs — chart notes pinned to this period */}
       <DraggableSection id='annotations' onReorder={handleReorder} accent={accent} order={getSectionOrder('annotations')}>

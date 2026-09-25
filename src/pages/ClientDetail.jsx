@@ -62,7 +62,15 @@ export default function ClientDetail() {
       await put('/api/clients', { id: clientId, compare_visible: v });
       push(v ? 'Comparison modes visible to client' : 'Comparison modes hidden from client', 'success');
       load();
-    } catch (e) { setCompareVisible(!v); push(e.message, 'error'); }
+    } catch (e) {
+      setCompareVisible(!v);
+      // Without the column the save fails and the toggle silently snaps back,
+      // which reads as a UI glitch. Say what is actually wrong.
+      const msg = /compare_visible/i.test(e.message || '')
+        ? `${e.message} — run migration 0005_compare_visible.sql against this database.`
+        : e.message;
+      push(msg, 'error');
+    }
   };
 
   const meta = SERVICE_META[service];
