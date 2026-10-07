@@ -46,11 +46,11 @@ export default function TeamHome() {
         <Select value={fService} onChange={(e) => setFService(e.target.value)} className='w-auto'><option value=''>All services</option>{SERVICE_ORDER.map((s) => <option key={s} value={s}>{SERVICE_META[s].label}</option>)}</Select>
       </div>
       {loading ? <FullLoader /> : clients.length === 0 ? (
-        <EmptyState icon={Users} title='No clients yet' message='No clients are assigned to you yet. Ask an admin to assign one.' accent='#6366f1' />
+        <EmptyState icon={Users} title='No clients yet' message='No clients are assigned to you yet. Ask an admin to assign one.' accent={SERVICE_META.seo.accent} />
       ) : (
         <div className='grid sm:grid-cols-2 lg:grid-cols-3 gap-4'>
           {clients.map((c) => (
-            <button key={c.id} onClick={() => nav(`/app/clients/${c.id}`)} className='text-left rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-4 hover:shadow-md hover:border-slate-300 dark:hover:border-slate-600 transition group flex flex-col'>
+            <button key={c.id} onClick={() => nav(`/app/clients/${c.id}`)} className='text-left card-surface p-4 hover:shadow-md hover:border-slate-300 dark:hover:border-slate-600 transition group flex flex-col'>
               <div className='flex items-start justify-between'>
                 <div className='flex items-center gap-3'>
                   <div className='h-10 w-10 rounded-xl bg-slate-100 flex items-center justify-center overflow-hidden text-slate-400'>{c.logo_url ? <img src={c.logo_url} alt='' className='h-full w-full object-cover' /> : <Building2 className='w-5 h-5' />}</div>

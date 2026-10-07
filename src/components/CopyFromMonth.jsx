@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Copy, AlertTriangle } from 'lucide-react';
 import { get } from '../lib/api';
-import { Button, Select, Field, Modal, useToast } from './ui';
+import { Button, Select, Field, Modal, useToast, InlineEmpty } from './ui';
 
 /*
  * CopyFromMonth — "copy from a previous month" for a report section.
@@ -63,7 +63,7 @@ export function CopyFromMonth({ report, onCopy, accent, what = 'Values', label =
           <Button accent={accent} variant='accent' disabled={!chosen || loading} onClick={apply}>Copy values</Button>
         </>}>
         {loading ? (
-          <p className='text-sm text-slate-400 dark:text-slate-500'>Loading previous reports…</p>
+          <InlineEmpty>Loading previous reports…</InlineEmpty>
         ) : reports.length === 0 ? (
           <p className='text-sm text-slate-500 dark:text-slate-400'>
             There are no earlier reports for this client and service to copy from yet.

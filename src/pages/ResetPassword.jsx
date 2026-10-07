@@ -8,23 +8,41 @@ export default function ResetPassword() {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [loading, setLoading] = useState(false);
+  // The recovery token arrives in the URL fragment and is parsed by the auth
+  // client. Awaiting getSession() means the form cannot be submitted before that
+  // has happened, so a fast user cannot trigger updateUser() against a session
+  // that is not established yet and get a spurious "Auth session missing".
+  const [ready, setReady] = useState(false);
   const nav = useNavigate();
   const { push } = useToast();
 
   useEffect(() => {
-    supabase.auth.getSession();
+    let mounted = true;
+    // .catch() before .finally(): a rejected promise returned by .finally()
+    // re-rejects, and nothing here handles it.
+    supabase.auth.getSession().catch(() => {}).finally(() => { if (mounted) setReady(true); });
+    return () => { mounted = false; };
   }, []);
 
   const submit = async (e) => {
     e.preventDefault();
+    // The button is disabled until ready, but pressing Enter in a field submits
+    // the form regardless — which is the exact race `ready` exists to prevent.
+    if (!ready) return;
     if (password.length < 6) { push('Password must be at least 6 characters', 'error'); return; }
     if (password !== confirm) { push('Passwords do not match', 'error'); return; }
     setLoading(true);
-    const { error } = await supabase.auth.updateUser({ password });
-    setLoading(false);
-    if (error) { push(error.message, 'error'); return; }
-    push('Password updated', 'success');
-    nav('/app');
+    try {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) { push(error.message, 'error'); return; }
+      push('Password updated', 'success');
+      nav('/app');
+    } catch (e) {
+      // Without this the button stays disabled reading "Updating…" forever.
+      push(e?.message || 'Could not update your password. Please try again.', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -43,7 +61,7 @@ export default function ResetPassword() {
             <Lock className='absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400' />
             <Input type='password' placeholder='Confirm password' value={confirm} onChange={(e) => setConfirm(e.target.value)} className='pl-10' />
           </div>
-          <Button type='submit' disabled={loading} className='w-full'>{loading ? 'Updating...' : 'Update password'}</Button>
+          <Button type='submit' disabled={loading || !ready} className='w-full'>{loading ? 'Updating...' : 'Update password'}</Button>
         </form>
       </div>
     </div>

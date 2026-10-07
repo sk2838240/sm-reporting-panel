@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ShieldCheck, User, Lock, ArrowRight } from 'lucide-react';
 import supabase from '../lib/supabase';
 import { Button, Input, useToast } from '../components/ui';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -12,6 +13,14 @@ export default function Login() {
   const [err, setErr] = useState('');
   const nav = useNavigate();
   const { push } = useToast();
+  const { session } = useAuth();
+
+  // Already signed in? Go straight through. Without this, landing on /login while
+  // authenticated showed the form, and a no-op submit sent the user to /app —
+  // which bounced straight back here for any profile without a known role.
+  useEffect(() => {
+    if (session) nav('/app', { replace: true });
+  }, [session, nav]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -22,7 +31,7 @@ export default function Login() {
     setLoading(false);
     if (error) { setErr(error.message); return; }
     push('Welcome back!', 'success');
-    nav('/app');
+    nav('/app', { replace: true });
   };
 
   return (

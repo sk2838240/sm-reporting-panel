@@ -3,12 +3,13 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { Download, TrendingUp, Target, CalendarRange, Activity, Sparkles, ChevronDown, Building2, Crosshair, CheckSquare, MessageSquarePlus } from 'lucide-react';
 import { get } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
-import { FullLoader, EmptyState, useToast, BackButton } from '../components/ui';
+import { FullLoader, EmptyState, useToast, BackButton, Badge, SegmentedControl, InlineEmpty } from '../components/ui';
 import { TrendChart, ComparisonBars } from '../components/charts';
 import { KeywordRankingTable } from '../components/KeywordRanking';
 import { KeywordStatusView } from '../components/KeywordStatus';
+import { serviceIcon } from '../lib/service-icons';
 import { SERVICE_META, SERVICE_ORDER, NOTE_SECTIONS } from '../lib/constants';
-import { fmtNum, fmtRaw, fmtPct, shortPeriod, formatDate } from '../lib/format';
+import { fmtNum, fmtRaw, fmtPct, shortPeriod, formatDate, parseLocalDate } from '../lib/format';
 import { getValue, momDelta, yoyDelta, trailingAvg, vsTarget, compare, rangeAggregate } from '../lib/comparisons';
 
 const MODES = [
@@ -35,7 +36,6 @@ export default function ClientDashboard() {
   // the ability to switch modes.
   const compareVisible = client ? client.compare_visible !== false : true;
   const modeParam = searchParams.get('mode') || 'mom';
-  const mode = compareVisible ? modeParam : 'mom';
   const reportIdFromUrl = searchParams.get('report');
   const [reports, setReports] = useState([]);
   const [targets, setTargets] = useState([]);
@@ -50,7 +50,11 @@ export default function ClientDashboard() {
     try {
       const c = await get(`/api/clients?single=1&id=${clientId}`);
       setClient(c);
-      const svcList = c.services || SERVICE_ORDER;
+      // An empty array is truthy, so `|| SERVICE_ORDER` did not catch it and
+      // svcList[0] was undefined — SERVICE_META['undefined'] is undefined and
+      // the render below threw on meta.accent, blanking the whole page.
+      const svcList = Array.isArray(c.services) && c.services.length ? c.services : SERVICE_ORDER;
+      if (!c.services?.length) { setLoading(false); return; }
       if (!svcList.includes(service)) {
         setSearchParams(prev => { const n = new URLSearchParams(prev); n.set('service', svcList[0]); return n; }, { replace: true });
         setLoading(false); return;
@@ -83,6 +87,21 @@ export default function ClientDashboard() {
   const selectedIndex = selectedReport ? series.indexOf(selectedReport) : -1;
   const prev = selectedIndex > 0 ? series[selectedIndex - 1] : null;
 
+  // Targets can be hidden from the client by the agency. When hidden, drop the
+  // "vs Target" comparison mode and the target overlay on the charts.
+  // Declared before `mode` is consumed by customSets below, and tolerant of a
+  // null client so the early returns further down still work.
+  const targetsVisible = client ? client.targets_visible !== false : true;
+  const visibleTargets = targetsVisible ? targets : [];
+  const modes = targetsVisible ? MODES : MODES.filter((m) => m.key !== 'target');
+
+  // Renormalise the active mode against BOTH permissions. Previously only
+  // compare_visible was handled, so a client arriving on a shared or bookmarked
+  // ?mode=target URL after the agency hid targets got a page where every metric
+  // card read "No target set" and NO button in the selector was highlighted.
+  const mode = !compareVisible ? 'mom'
+    : (modes.some((m) => m.key === modeParam) ? modeParam : 'mom');
+
   const customSets = useMemo(() => {
     if (mode !== 'custom') return null;
     const inRange = (r, s, e) => (!s || new Date(r.period_start) >= new Date(s)) && (!e || new Date(r.period_start) <= new Date(e));
@@ -93,8 +112,11 @@ export default function ClientDashboard() {
 
   if (loading) return <FullLoader label='Loading dashboard...' />;
   if (!client) return <EmptyState icon={Building2} title='No client linked' message='Your account is not linked to a client yet. Contact your agency.' />;
-
-  const services = client.services || SERVICE_ORDER;
+  // A non-array `services` (legacy or hand-edited row) would pass the old
+  // optional-chain check — a non-empty string has a truthy .length — and then
+  // throw on the .map() below, locking the client out of their own dashboard.
+  const services = Array.isArray(client.services) ? client.services : [];
+  if (!services.length) return <EmptyState icon={Building2} title='No services enabled' message='Your agency has not enabled any reporting services for you yet. Contact them to get set up.' />;
   const vis = selectedReport?.lists?._section_visibility || {};
   const sectionOrder = selectedReport?.lists?._section_order || [];
   const show = (k) => vis[k] !== false;
@@ -103,14 +125,16 @@ export default function ClientDashboard() {
   // Objectives live in their own column.
   const objectives = Array.isArray(client.objectives) ? client.objectives : [];
 
-  // Targets can be hidden from the client by the agency. When hidden, drop the
-  // "vs Target" comparison mode and the target overlay on the charts.
-  const targetsVisible = client.targets_visible !== false;
-  const visibleTargets = targetsVisible ? targets : [];
-  const modes = targetsVisible ? MODES : MODES.filter((m) => m.key !== 'target');
-
-  // Custom metrics from the latest report
-  const customMetricKeys = selectedReport ? Object.keys(selectedReport.metrics || {}).filter(k => !meta.coreMetrics.some(m => m.key === k)) : [];
+  // For platform services (Social) metrics are nested by platform, so
+  // Object.keys(metrics) is the platform list — treating those as custom metric
+  // names rendered three empty cards labelled Instagram / Facebook / LinkedIn,
+  // each reading "No numeric data yet". Custom metrics for those services live
+  // inside each platform bucket, so collect them per platform instead.
+  const customMetricKeys = selectedReport
+    ? (meta.hasPlatforms
+        ? [...new Set((meta.platforms || []).flatMap((p) => Object.keys(selectedReport.metrics?.[p.key] || {})).filter((k) => !meta.coreMetrics.some((m) => m.key === k)))]
+        : Object.keys(selectedReport.metrics || {}).filter((k) => !meta.coreMetrics.some((m) => m.key === k)))
+    : [];
 
   // Free-form sections (agency-authored heading + bullet points). Empty ones
   // are dropped so a blank section never renders on the client dashboard.
@@ -128,13 +152,22 @@ export default function ClientDashboard() {
 
       <div className='flex flex-wrap items-center justify-between gap-3 mb-6 no-print'>
         <div className='flex items-center gap-3'>
-          <div className='h-12 w-12 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center overflow-hidden text-slate-400'>{client.logo_url ? <img src={client.logo_url} alt='' className='h-full w-full object-cover' /> : <Building2 className='w-6 h-6' />}</div>
+          {/* Logo tile, matching ClientDetail's exactly — same size, same sunken
+              background, same border, no shadow. The bulk card migration gave it
+              `shadow-sm`, which draws a halo around a small image. */}
+          <div className='h-12 w-12 rounded-2xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center overflow-hidden text-slate-400'>{client.logo_url ? <img src={client.logo_url} alt='' className='h-full w-full object-cover' /> : <Building2 className='w-6 h-6' />}</div>
           <div>
             <h1 className='text-xl font-bold text-slate-900 dark:text-slate-100'>{client.company_name}</h1>
             <p className='text-sm text-slate-500 dark:text-slate-400'>Your reporting dashboard</p>
           </div>
         </div>
-        <button onClick={() => window.print()} className='inline-flex items-center gap-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3.5 py-2 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700'><Download className='w-4 h-4' /> Download PDF</button>
+        {/* Relabelled: this calls window.print(). There is no PDF generator in
+            the app, so "Download PDF" sent users to a print dialog they then
+            had to find "Save as PDF" in themselves. */}
+        <button onClick={() => window.print()} title='Opens the browser print dialog — choose "Save as PDF" as the destination'
+          className='inline-flex items-center gap-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3.5 py-2 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700'>
+          <Download className='w-4 h-4' /> Print / Save as PDF
+        </button>
       </div>
 
       <div className='hidden print:block mb-4'>
@@ -144,7 +177,7 @@ export default function ClientDashboard() {
 
       {/* Objectives box — above service tabs */}
       {objectives.length > 0 && (
-        <div className='rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-5 mb-6'>
+        <div className='card-surface p-5 mb-6'>
           <h3 className='text-[15px] font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2 mb-3'><Crosshair className='w-4 h-4' style={{ color: meta.accent }} /> Objectives</h3>
           <ul className='space-y-2'>
             {objectives.filter(o => o && o.trim()).map((obj, i) => (
@@ -158,15 +191,27 @@ export default function ClientDashboard() {
       )}
 
       {/* Service tabs */}
-      <div className='flex gap-1 mb-5 overflow-x-auto pb-1 no-print'>
-        {services.map((s) => {
-          const m = SERVICE_META[s]; const on = s === service;
-          return <button key={s} onClick={() => setSearchParams(prev => { const n = new URLSearchParams(prev); n.set('service', s); return n; })} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold whitespace-nowrap transition ${on ? 'text-white shadow-sm' : 'text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'}`} style={on ? { backgroundColor: m.accent } : undefined}><m.icon className='w-4 h-4' style={on ? undefined : { color: m.accent }} /> {m.label}</button>;
-        })}
-      </div>
+      {/* Service tabs. This and the identical strip in ClientDetail were a
+          verbatim ~300-character copy-paste; both now use <SegmentedControl>.
+          Passing accentText also fixes the white-on-amber (Social) and
+          white-on-pink (Instagram) contrast failures, since those accents fall
+          below 4.5:1 with white text. */}
+      <SegmentedControl
+        className='mb-5 pb-1 no-print'
+        ariaLabel='Reporting service'
+        value={service}
+        onChange={(s) => setSearchParams((prev) => { const n = new URLSearchParams(prev); n.set('service', s); return n; })}
+        options={services.map((s) => ({
+          key: s,
+          label: SERVICE_META[s].label,
+          accent: SERVICE_META[s].accent,
+          accentText: SERVICE_META[s].accentText,
+          icon: serviceIcon(SERVICE_META[s].icon),
+        }))}
+      />
 
       {series.length === 0 ? (
-        <EmptyState icon={meta.icon} title={`No ${meta.label} reports yet`} message="Your agency hasn't published a report for this service yet. You'll get a notification the moment one goes live." accent={meta.accent} />
+        <EmptyState icon={serviceIcon(meta.icon)} title={`No ${meta.label} reports yet`} message="Your agency hasn't published a report for this service yet. You'll get a notification the moment one goes live." accent={meta.accent} />
       ) : (
         <>
           {/* Month picker — lets client select which month's report to view */}
@@ -185,9 +230,13 @@ export default function ClientDashboard() {
           {compareVisible && (
             <div className='flex flex-wrap items-center gap-2 mb-5 no-print'>
               <span className='text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mr-1'>Compare</span>
-              <div className='flex flex-wrap gap-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-1'>
-                {modes.map((m) => <button key={m.key} onClick={() => setSearchParams(prev => { const n = new URLSearchParams(prev); n.set('mode', m.key); return n; })} className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${mode === m.key ? 'bg-slate-900 dark:bg-slate-700 text-white' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}><m.icon className='w-3.5 h-3.5' /> {m.label}</button>)}
-              </div>
+              <SegmentedControl
+                tone='neutral' size='sm' ariaLabel='Comparison mode'
+                className='flex-wrap bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-1'
+                value={mode}
+                onChange={(k) => setSearchParams((prev) => { const n = new URLSearchParams(prev); n.set('mode', k); return n; })}
+                options={modes.map((m) => ({ key: m.key, label: m.label, icon: m.icon }))}
+              />
             </div>
           )}
           {compareVisible && mode === 'custom' && (
@@ -202,7 +251,7 @@ export default function ClientDashboard() {
             {/* Work Done — SEO only */}
             {service === "seo" && show("workDone") && (selectedReport?.lists?.work_done || []).length > 0 && (
               <div style={{ order: getOrder('workDone') }} className='mb-6'>
-                <div className='rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-5'>
+                <div className='card-surface p-5'>
                   <h3 className='text-[15px] font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2 mb-3'><CheckSquare className='w-4 h-4' style={{ color: meta.accent }} /> Work Done</h3>
                   <ul className='space-y-2'>
                     {(selectedReport?.lists?.work_done || []).map((item, i) => (
@@ -247,7 +296,7 @@ export default function ClientDashboard() {
             {/* GA Metrics — SEO only */}
             {service === 'seo' && show('gaMetrics') && (selectedReport?.lists?.ga_metrics || []).length > 0 && (
               <div style={{ order: getOrder('gaMetrics') }} className='mb-6'>
-                <div className='rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-5'>
+                <div className='card-surface p-5'>
                   <h3 className='text-[15px] font-semibold text-slate-900 dark:text-slate-100 mb-3'>{selectedReport?.lists?.ga_metrics_title || 'GA Metrics'}</h3>
                   <div className='grid sm:grid-cols-2 lg:grid-cols-4 gap-4'>
                     {(selectedReport.lists.ga_metrics || []).filter(m => m.name).map((m, i) => {
@@ -267,15 +316,23 @@ export default function ClientDashboard() {
             {/* Custom metrics */}
             {show('customMetrics') && customMetricKeys.length > 0 && (
               <div style={{ order: getOrder('customMetrics') }} className='mb-6'>
-                <div className='rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-5'>
+                <div className='card-surface p-5'>
                   <h3 className='text-[15px] font-semibold text-slate-900 dark:text-slate-100 mb-3'>Additional Metrics</h3>
                   <div className='grid sm:grid-cols-2 lg:grid-cols-4 gap-4'>
-                    {customMetricKeys.map((key) => {
-                      const val = getValue(selectedReport, key, null);
-                      const prevVal = prev ? getValue(prev, key, null) : null;
-                      const d = compare(val, prevVal, false);
-                      return <CustomMetricCard key={key} label={key} value={val} delta={d} accent={meta.accent} format={meta.coreMetrics[0]?.format} series={series} metricKey={key} annotations={annotations} />;
-                    })}
+                    {meta.hasPlatforms
+                      ? (meta.platforms || []).flatMap((p) => customMetricKeys
+                        .filter((k) => k in (selectedReport.metrics?.[p.key] || {}))
+                        .map((key) => {
+                          const val = getValue(selectedReport, key, p.key);
+                          const prevVal = prev ? getValue(prev, key, p.key) : null;
+                          return <CustomMetricCard key={p.key + ':' + key} label={`${p.label} · ${key}`} value={val} delta={compare(val, prevVal, false)} accent={p.color || meta.accent} format={meta.coreMetrics[0]?.format} series={series} metricKey={key} platform={p.key} annotations={annotations} />;
+                        }))
+                      : customMetricKeys.map((key) => {
+                        const val = getValue(selectedReport, key, null);
+                        const prevVal = prev ? getValue(prev, key, null) : null;
+                        const d = compare(val, prevVal, false);
+                        return <CustomMetricCard key={key} label={key} value={val} delta={d} accent={meta.accent} format={meta.coreMetrics[0]?.format} series={series} metricKey={key} annotations={annotations} />;
+                      })}
                   </div>
                 </div>
               </div>
@@ -305,7 +362,7 @@ export default function ClientDashboard() {
             {/* Keyword Status Tracker — ORM only */}
             {service === 'orm' && show('keywordStatus') && (
               <div style={{ order: getOrder('keywordStatus') }} className='mb-6'>
-                <KeywordStatusView series={series} accent={meta.accent} />
+                <KeywordStatusView series={series} accent={meta.accent} currentReport={selectedReport} />
               </div>
             )}
 
@@ -319,7 +376,7 @@ export default function ClientDashboard() {
             {/* Additional Inputs (annotations) */}
             {show('annotations') && annotations.filter(a => a.period_start === selectedReport?.period_start).length > 0 && (
               <div style={{ order: getOrder('annotations') }} className='mb-6'>
-                <div className='rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-5'>
+                <div className='card-surface p-5'>
                   <h3 className='text-[15px] font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2 mb-3'><MessageSquarePlus className='w-4 h-4' style={{ color: meta.accent }} /> Additional Inputs</h3>
                   <ul className='space-y-2'>
                     {annotations.filter(a => a.period_start === selectedReport?.period_start).map((a) => (
@@ -343,7 +400,7 @@ export default function ClientDashboard() {
             {/* Free-form sections — heading set by the agency, one card each */}
             {notes.map((note) => (show(note.id) && note.points.length > 0 ? (
               <div key={note.id} style={{ order: getOrder(note.id) }} className='mb-6'>
-                <div className='rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-5'>
+                <div className='card-surface p-5'>
                   <h3 className='text-[15px] font-semibold text-slate-900 dark:text-slate-100 mb-3'>{note.title}</h3>
                   <ul className='space-y-2'>
                     {note.points.map((point, i) => (
@@ -387,17 +444,20 @@ function MetricCard({ meta, metric, platform, series, latest, prev, mode, target
 
   let badge = null, bars = null, sub = null, chartTarget = null, chartTrailing = null;
   if (mode === 'mom') { const d = momDelta(series, idx, metric.key, pkey, metric.lowerBetter); badge = d; bars = { current: cur, previous: prev ? getValue(prev, metric.key, pkey) : null }; sub = 'vs last period'; }
-  else if (mode === 'yoy') { const d = yoyDelta(series, idx, metric.key, pkey, metric.lowerBetter); badge = d; bars = { current: cur, previous: d.prev }; sub = 'vs same period last year'; }
+  else if (mode === 'yoy') { const d = yoyDelta(series, idx, metric.key, pkey, metric.lowerBetter); badge = d; bars = { current: cur, previous: d.prev }; sub = d.prev === null ? 'no report from last year' : 'vs same period last year'; }
   else if (mode === 'trailing3') { const avg = trailingAvg(series, idx, metric.key, pkey, 3); chartTrailing = series.map((_, i) => trailingAvg(series, i, metric.key, pkey, 3)); sub = `3-mo avg: ${avg === null ? '—' : fmtNum(avg, metric.format)}`; }
   else if (mode === 'trailing6') { const avg = trailingAvg(series, idx, metric.key, pkey, 6); chartTrailing = series.map((_, i) => trailingAvg(series, i, metric.key, pkey, 6)); sub = `6-mo avg: ${avg === null ? '—' : fmtNum(avg, metric.format)}`; }
-  else if (mode === 'target') { const v = vsTarget(cur, target, metric.lowerBetter); chartTarget = target; sub = v ? `${fmtPct(v.pct)} of goal${v.met ? ' · reached' : ` · ${fmtNum(Math.abs(v.remaining), metric.format)} to go`}` : 'No target set'; }
+  // vsTarget returns null when EITHER the value or the target is missing, so
+  // distinguish "no goal set" from "no figure entered for this month" — the
+  // old single message claimed there was no target when one existed.
+  else if (mode === 'target') { const v = vsTarget(cur, target, metric.lowerBetter); chartTarget = target; sub = v ? `${fmtPct(v.pct)} of goal${v.met ? ' · reached' : ` · ${fmtNum(Math.abs(v.remaining), metric.format)} to go`}` : (target === null ? 'No target set' : 'No figure for this month'); }
   else if (mode === 'custom' && customSets) { const a = rangeAggregate(customSets.a, metric.key, pkey); const b = rangeAggregate(customSets.b, metric.key, pkey); badge = compare(b, a, metric.lowerBetter); bars = { current: b, previous: a }; sub = 'range B vs range A'; }
 
   const chartData = series.map((r) => ({ label: r.period_label, shortLabel: shortPeriod(r.period_label), value: getValue(r, metric.key, pkey), periodStart: r.period_start }));
   const color = platform?.color || meta.accent;
 
   return (
-    <div className='rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-4'>
+    <div className='card-surface p-4'>
       <div className='flex items-start justify-between gap-2'>
         <div>
           <div className='flex items-center gap-1.5'>
@@ -417,8 +477,8 @@ function MetricCard({ meta, metric, platform, series, latest, prev, mode, target
   );
 }
 
-function CustomMetricCard({ label, value, delta, accent, format, series, metricKey, annotations }) {
-  const chartData = series.map((r) => ({ label: r.period_label, shortLabel: shortPeriod(r.period_label), value: getValue(r, metricKey, null), periodStart: r.period_start }));
+function CustomMetricCard({ label, value, delta, accent, format, series, metricKey, annotations, platform = null }) {
+  const chartData = series.map((r) => ({ label: r.period_label, shortLabel: shortPeriod(r.period_label), value: getValue(r, metricKey, platform), periodStart: r.period_start }));
   return (
     <div className='rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600 p-4'>
       <div className='flex items-start justify-between gap-2'>
@@ -436,17 +496,26 @@ function CustomMetricCard({ label, value, delta, accent, format, series, metricK
   );
 }
 
+// Renders through the shared <Badge> rather than its own class string. It was a
+// second implementation of the same pill that ui.jsx also exported (DeltaBadge,
+// since removed) with different padding (px-2 vs px-2.5) and weight (bold vs
+// semibold), so the same green delta looked different here than on a status pill.
 function DeltaPill({ delta }) {
   if (!delta || delta.abs === null || delta.abs === undefined) return <span className='text-xs text-slate-400 dark:text-slate-500 font-medium'>—</span>;
   const up = delta.abs > 0; const flat = delta.abs === 0;
   let good = delta.good; if (flat) good = null;
-  const cls = good === null ? 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400' : good ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' : 'bg-rose-50 dark:bg-rose-900/30 text-rose-700 dark:text-rose-400';
+  const color = good === null ? 'slate' : good ? 'emerald' : 'rose';
   const sign = up ? '+' : '';
-  return <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-bold ${cls}`}>{sign}{Math.abs(delta.abs) >= 1000 ? Math.round(delta.abs).toLocaleString() : fmtRaw(delta.abs)}{delta.pct !== null ? ` · ${sign}${delta.pct.toFixed(1)}%` : ''}</span>;
+  return <Badge color={color}>{sign}{Math.abs(delta.abs) >= 1000 ? Math.round(delta.abs).toLocaleString() : fmtRaw(delta.abs)}{delta.pct !== null ? ` · ${sign}${delta.pct.toFixed(1)}%` : ''}</Badge>;
 }
 
 function BreakdownTable({ meta, series, categoryFilter, title, subtitle }) {
-  const [platform, setPlatform] = useState(meta.platforms?.[0]?.key || null);
+  const firstPlatform = meta.platforms?.[0]?.key || null;
+  const [platform, setPlatform] = useState(firstPlatform);
+  // Switching SEO -> Social reuses this instance, so `platform` stayed null from
+  // the SEO render and breakdowns[null] resolved to {} — a table of zero rows
+  // with no platform tab highlighted. Re-derive when the service changes.
+  useEffect(() => { setPlatform(firstPlatform); }, [firstPlatform]);
   const cats = useMemo(() => {
     const set = new Set();
     series.forEach((r) => {
@@ -473,16 +542,19 @@ function BreakdownTable({ meta, series, categoryFilter, title, subtitle }) {
   }).reverse();
 
   return (
-    <div className='rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-5'>
+    <div className='card-surface p-5'>
       <div className='flex flex-wrap items-center justify-between gap-2 mb-3'>
         <div><h3 className='text-[15px] font-semibold text-slate-900 dark:text-slate-100'>{tblTitle}</h3><p className='text-xs text-slate-500 dark:text-slate-400'>{tblSubtitle}</p></div>
         {meta.hasPlatforms && (
-          <div className='flex gap-1'>
-            {meta.platforms.map((p) => <button key={p.key} onClick={() => setPlatform(p.key)} className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${platform === p.key ? 'text-white' : 'text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700'}`} style={platform === p.key ? { backgroundColor: p.color } : undefined}>{p.label}</button>)}
-          </div>
+          <SegmentedControl
+            tone='accent' size='sm' ariaLabel='Platform'
+            value={platform}
+            onChange={setPlatform}
+            options={meta.platforms.map((p) => ({ key: p.key, label: p.label, accent: p.color, accentText: p.colorText }))}
+          />
         )}
       </div>
-      {rows.length === 0 ? <p className='text-sm text-slate-400 dark:text-slate-500 py-6 text-center'>No breakdown data yet.</p> : (
+      {rows.length === 0 ? <InlineEmpty>No breakdown data yet.</InlineEmpty> : (
         <div className='overflow-x-auto'>
           <table className='w-full text-sm border-collapse'>
             <thead><tr className='text-left'>
@@ -512,11 +584,11 @@ function ListsSection({ meta, series, listPeriod, visibleLists = {} }) {
       {visibleListsArr.map((l) => {
         const rows = (periodReport?.lists?.[l.key] || []);
         return (
-          <div key={l.key} className='rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-5'>
+          <div key={l.key} className='card-surface p-5'>
             <div className='flex items-center justify-between mb-3'>
               <h3 className='text-[15px] font-semibold text-slate-900 dark:text-slate-100'>{l.label}</h3>
             </div>
-            {rows.length === 0 ? <p className='text-sm text-slate-400 dark:text-slate-500 py-4 text-center'>No entries for this period.</p> : (
+            {rows.length === 0 ? <InlineEmpty>No entries for this period.</InlineEmpty> : (
               <div className='space-y-2 max-h-72 overflow-y-auto'>
                 {l.key === 'brand_keywords' ? (
                   <table className='w-full text-sm'><tbody>
@@ -569,21 +641,35 @@ function AchievementsSection({ series, accent }) {
   const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
   const periodsWithAchievements = series.filter(r => (r.achievements || []).some(a => a && a.trim()));
-  const lastWith = periodsWithAchievements[periodsWithAchievements.length - 1];
-  const lastDate = lastWith ? new Date(lastWith.period_start) : new Date();
-  const [selYear, setSelYear] = useState(lastDate.getFullYear());
-  const [selMonth, setSelMonth] = useState(lastDate.getMonth() + 1);
+  const years = [...new Set(series.map(r => parseLocalDate(r.period_start).getFullYear()))].filter(Number.isFinite).sort();
 
-  const years = [...new Set(series.map(r => new Date(r.period_start).getFullYear()))].sort();
+  // Anchor the selector to a period that exists in the series. Falling back to
+  // new Date() picked the current year, which is absent from `years` whenever
+  // every report is older — the <select> then rendered blank and the empty-state
+  // message named a year the client had no way of selecting.
+  const lastWith = periodsWithAchievements[periodsWithAchievements.length - 1];
+  const anchor = parseLocalDate((lastWith || series[series.length - 1] || {}).period_start);
+  // Guard the unparseable-date case: a bad value yields NaN here, which blanked
+  // the dropdown and printed "undefined" in the empty-state text.
+  const anchorYear = Number.isFinite(anchor.getFullYear()) ? anchor.getFullYear() : (years[years.length - 1] ?? 0);
+  const anchorMonth = Number.isFinite(anchor.getMonth()) ? anchor.getMonth() + 1 : 1;
+  const [selYear, setSelYear] = useState(anchorYear);
+  const [selMonth, setSelMonth] = useState(anchorMonth);
+
+  // The initial state is computed on first render, but `series` arrives
+  // asynchronously — this component is not remounted when it does, so the year
+  // captured at mount may not be one the reports actually cover. Snap back to
+  // the newest year on offer rather than leaving the select showing nothing.
+  const year = years.includes(selYear) ? selYear : (years[years.length - 1] ?? selYear);
 
   const filtered = series.filter((r) => {
-    const d = new Date(r.period_start);
-    return d.getFullYear() === selYear && (d.getMonth() + 1) === selMonth;
+    const d = parseLocalDate(r.period_start);
+    return d.getFullYear() === year && (d.getMonth() + 1) === selMonth;
   });
   const items = filtered.flatMap(r => (r.achievements || []).filter(a => a && a.trim()));
 
   return (
-    <div className='rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-5'>
+    <div className='card-surface p-5'>
       <div className='flex flex-wrap items-center justify-between gap-3 mb-4'>
         <div>
           <h3 className='text-[15px] font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2'><Sparkles className='w-4 h-4' style={{ color: accent }} /> Monthly achievements</h3>
@@ -597,7 +683,7 @@ function AchievementsSection({ series, accent }) {
             <ChevronDown className='pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400' />
           </div>
           <div className='relative'>
-            <select value={selYear} onChange={(e) => setSelYear(Number(e.target.value))} className='appearance-none rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 pl-3 pr-8 py-1.5 text-sm font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/40'>
+            <select value={year} onChange={(e) => setSelYear(Number(e.target.value))} className='appearance-none rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 pl-3 pr-8 py-1.5 text-sm font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/40'>
               {years.map((y) => <option key={y} value={y}>{y}</option>)}
             </select>
             <ChevronDown className='pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400' />
@@ -605,7 +691,7 @@ function AchievementsSection({ series, accent }) {
         </div>
       </div>
       {items.length === 0 ? (
-        <p className='text-sm text-slate-400 dark:text-slate-500 py-6 text-center'>No achievements recorded for {MONTHS[selMonth - 1]} {selYear}.</p>
+        <InlineEmpty>No achievements recorded for {MONTHS[selMonth - 1]} {year}.</InlineEmpty>
       ) : (
         <ul className='space-y-2'>
           {items.map((a, i) => (

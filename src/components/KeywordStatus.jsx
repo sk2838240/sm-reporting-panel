@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { ChevronDown, Columns, Plus, X, ArrowRight, Trash2 } from 'lucide-react';
 import { get } from '../lib/api';
-import { useToast } from './ui';
+import { useToast, IconButton } from './ui';
 
 
 /*
@@ -61,8 +61,12 @@ export function KeywordStatusTracker({ report, keywordStatus, onChange, accent, 
           ]);
         }
 
-        // Default left-side to the most recent month before current
-        const prevReports = ormSorted.filter(r => r.id !== report.id);
+        // Default left-side to the most recent month strictly BEFORE the report
+        // being edited. Filtering on id alone also matched later months, so
+        // editing March defaulted the comparison to July — and "copy left table"
+        // would then copy future data backwards into the current month.
+        const selfStart = report.period_start ? String(report.period_start) : null;
+        const prevReports = ormSorted.filter(r => (selfStart ? String(r.period_start) < selfStart : r.id !== report.id));
         if (prevReports.length) {
           setSelectedPeriod(prevReports[prevReports.length - 1].period_start);
         }
@@ -144,7 +148,8 @@ export function KeywordStatusTracker({ report, keywordStatus, onChange, accent, 
   // Admin-only: add a new keyword directly in the status tracker
   const addKeywordDirect = () => {
     const kw = newKw.trim();
-    if (!kw) return;
+    // Same silent-empty problem as the ranking tracker's Add button.
+    if (!kw) { push('Type a keyword first', 'error'); return; }
     if (keywords.includes(kw)) { push('Keyword already exists', 'error'); return; }
     setKeywords([...keywords, kw]);
     onChange([...keywordStatus, { keyword: kw, page1: [], page2: [], page3: [] }]);
@@ -168,7 +173,11 @@ export function KeywordStatusTracker({ report, keywordStatus, onChange, accent, 
     { key: 'page3', label: 'Page 3' },
   ];
 
-  const prevOptions = ormReports.filter(r => r.id !== report.id).sort((a, b) => new Date(b.period_start) - new Date(a.period_start));
+  // Only months strictly before the report being edited — see the default above.
+  const selfStart = report.period_start ? String(report.period_start) : null;
+  const prevOptions = ormReports
+    .filter((r) => (selfStart ? String(r.period_start) < selfStart : r.id !== report.id))
+    .sort((a, b) => new Date(b.period_start) - new Date(a.period_start));
 
   return (
     <div>
@@ -282,9 +291,10 @@ export function KeywordStatusTracker({ report, keywordStatus, onChange, accent, 
                                     placeholder='e.g. Assets: 4, 5'
                                     className='w-full min-w-[100px] rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 px-1.5 py-0.5 text-xs text-slate-700 dark:text-slate-200 placeholder:text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/40'
                                   />
-                                  <button onClick={() => removeLine(kw, p.key, i)} className='text-slate-300 hover:text-rose-500 shrink-0'>
+                                  <IconButton label={`Remove asset line for "${kw}"`} tone='danger' size='sm' padding='p-0.5' className='shrink-0'
+                                    onClick={() => removeLine(kw, p.key, i)}>
                                     <X className='w-3 h-3' />
-                                  </button>
+                                  </IconButton>
                                 </div>
                               ))}
                               <button onClick={() => addLine(kw, p.key)} className='inline-flex items-center gap-0.5 text-xs font-semibold text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400'>
@@ -303,9 +313,10 @@ export function KeywordStatusTracker({ report, keywordStatus, onChange, accent, 
                     })}
                     {canEdit && (
                       <td className='px-1 py-2 text-center'>
-                        <button onClick={() => deleteKeywordDirect(kw)} className='p-1 rounded text-slate-300 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-900/20' title={`Delete "${kw}"`}>
+                        <IconButton label={`Delete "${kw}"`} tone='danger' size='sm' padding='p-1'
+                          onClick={() => deleteKeywordDirect(kw)}>
                           <Trash2 className='w-3 h-3' />
-                        </button>
+                        </IconButton>
                       </td>
                     )}
                   </tr>
@@ -330,7 +341,7 @@ export function KeywordStatusTracker({ report, keywordStatus, onChange, accent, 
  * KeywordStatusView — used in the ClientDashboard (ORM only, read-only).
  * Same two-table layout but fully read-only with the left-side month selector.
  */
-export function KeywordStatusView({ series, accent }) {
+export function KeywordStatusView({ series, accent, currentReport = null }) {
   const [selectedPeriod, setSelectedPeriod] = useState('');
   const [seoKeywords, setSeoKeywords] = useState([]);
 
@@ -360,21 +371,35 @@ export function KeywordStatusView({ series, accent }) {
     () => [...series].sort((a, b) => new Date(a.period_start) - new Date(b.period_start)),
     [series]
   );
-  const latest = periods[periods.length - 1];
+  // "Current" is the month the dashboard's period picker is showing, not simply
+  // the newest report. Otherwise selecting an earlier month leaves the metric
+  // cards on that month while this table still reports the latest one.
+  const current = (currentReport && periods.find(r => r.id === currentReport.id)) || periods[periods.length - 1];
 
-  // Default left-side to the month before latest
-  useEffect(() => {
-    if (periods.length > 1 && !selectedPeriod) {
-      setSelectedPeriod(periods[periods.length - 2].period_start);
-    }
-  }, [periods, selectedPeriod]);
+  // The comparison month defaults to the period immediately before "current".
+  // Derived rather than stored in an effect, so it follows the dashboard
+  // automatically instead of latching onto the month it was seeded with.
+  const currentIdx = periods.findIndex(r => r.id === current?.id);
+  const defaultCompare = currentIdx > 0 ? String(periods[currentIdx - 1].period_start) : '';
 
   if (!periods.length) return null;
 
-  const prevOptions = periods.filter(r => r.id !== latest?.id).sort((a, b) => new Date(b.period_start) - new Date(a.period_start));
-  const leftReport = periods.find(r => String(r.period_start) === String(selectedPeriod));
+  // Only offer periods that precede "current" — the right-hand table is the
+  // selected month, so a later month would be comparing the future to the past.
+  const prevOptions = periods.slice(0, currentIdx < 0 ? periods.length : currentIdx)
+    .sort((a, b) => new Date(b.period_start) - new Date(a.period_start));
+  // An explicit user choice wins, but only while it is still a valid option AND
+  // it actually precedes "current". Without the ordering check, picking February
+  // and then moving the dashboard back to January left the left-hand table
+  // showing a month *after* the one on the right.
+  const stored = periods.find(r => String(r.period_start) === String(selectedPeriod));
+  const storedIdx = stored ? periods.findIndex(r => r.id === stored.id) : -1;
+  const leftReport = (stored && stored.id !== current?.id && storedIdx < currentIdx)
+    ? stored
+    : periods.find(r => String(r.period_start) === defaultCompare);
+  const compareValue = leftReport ? String(leftReport.period_start) : '';
   const leftStatus = leftReport?.lists?.keyword_status || [];
-  const rightStatus = latest?.lists?.keyword_status || [];
+  const rightStatus = current?.lists?.keyword_status || [];
 
   const PAGES = [
     { key: 'page1', label: 'Page 1' },
@@ -389,11 +414,11 @@ export function KeywordStatusView({ series, accent }) {
   };
 
   return (
-    <div className='rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-5 mb-6'>
+    <div className='card-surface p-5 mb-6'>
       <h3 className='text-[15px] font-semibold text-slate-900 dark:text-slate-100 mb-1 flex items-center gap-2'>
         <Columns className='w-4 h-4' style={{ color: accent }} /> Keyword Status Tracker
       </h3>
-      <p className='text-xs text-slate-500 dark:text-slate-400 mb-4'>Keyword positions across search result pages. Compare any past month against the current month.</p>
+      <p className='text-xs text-slate-500 dark:text-slate-400 mb-4'>Keyword positions across search result pages. Compare any past month against the selected month.</p>
 
       <div className='grid lg:grid-cols-2 gap-4'>
         {/* LEFT TABLE — selectable past month (read-only) */}
@@ -401,7 +426,7 @@ export function KeywordStatusView({ series, accent }) {
           <div className='flex items-center gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700'>
             <span className='text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap'>Compare:</span>
             <div className='relative flex-1'>
-              <select value={selectedPeriod} onChange={(e) => setSelectedPeriod(e.target.value)}
+              <select value={compareValue} onChange={(e) => setSelectedPeriod(e.target.value)}
                 className='appearance-none w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 pl-3 pr-8 py-1.5 text-sm font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/40'>
                 <option value=''>— Select month —</option>
                 {prevOptions.map(r => <option key={r.id} value={r.period_start}>{r.period_label}</option>)}
@@ -440,10 +465,10 @@ export function KeywordStatusView({ series, accent }) {
           </div>
         </div>
 
-        {/* RIGHT TABLE — current month (read-only) */}
+        {/* RIGHT TABLE — the month currently selected on the dashboard (read-only) */}
         <div className='rounded-xl border-2 overflow-hidden' style={{ borderColor: accent }}>
           <div className='flex items-center px-3 py-2 border-b' style={{ backgroundColor: accent + '10', borderColor: accent }}>
-            <span className='text-xs font-bold whitespace-nowrap' style={{ color: accent }}>◆ {latest?.period_label || 'Current'}</span>
+            <span className='text-xs font-bold whitespace-nowrap' style={{ color: accent }}>◆ {current?.period_label || 'Current'}</span>
           </div>
           <div className='overflow-x-auto max-h-[400px] overflow-y-auto'>
             <table className='w-full text-xs border-collapse'>

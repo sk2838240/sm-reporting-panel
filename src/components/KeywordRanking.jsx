@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, Copy, ChevronDown, TrendingDown, TrendingUp, Minus, X } from 'lucide-react';
 import { get } from '../lib/api';
-import { useToast } from './ui';
+import { useToast, InlineEmpty, IconButton } from './ui';
 import { shortPeriod } from '../lib/format';
 
 /*
@@ -61,7 +61,9 @@ export function KeywordRankingEditor({ report, keywordRankings, onChange, accent
 
   const submitNewKeyword = () => {
     const kw = newKeyword.trim();
-    if (!kw) return;
+    // Was a bare `return`: the input is auto-focused, so the most likely first
+    // action was clicking Add on an empty box and getting no feedback at all.
+    if (!kw) { push('Type a keyword first', 'error'); return; }
     if (keywords.includes(kw)) { push('Keyword already exists', 'error'); return; }
     onChange([...keywordRankings, { keyword: kw, position: '' }]);
     setNewKeyword('');
@@ -69,9 +71,13 @@ export function KeywordRankingEditor({ report, keywordRankings, onChange, accent
     push('Keyword added', 'success');
   };
 
+  // Rows are the union across every report, but this editor may only modify the
+  // report it was opened for — a keyword that exists in earlier months still
+  // renders after removal, because deleting it there would rewrite published
+  // history. Say which month changed instead of implying the row is gone.
   const deleteKeyword = (kw) => {
     onChange(keywordRankings.filter(k => k.keyword !== kw));
-    push('Keyword removed', 'success');
+    push(`Removed "${kw}" from ${report.period_label}`, 'success');
   };
 
   const doCopy = () => {
@@ -180,9 +186,10 @@ export function KeywordRankingEditor({ report, keywordRankings, onChange, accent
                   })}
                   {canEdit && (
                     <td className='px-1 py-2 text-center border-b border-slate-100 dark:border-slate-700'>
-                      <button onClick={() => deleteKeyword(kw)} className='p-1 rounded-lg text-slate-300 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-900/20' title={`Delete "${kw}"`}>
+                      <IconButton label={`Delete "${kw}"`} tone='danger' size='sm' padding='p-1'
+                        onClick={() => deleteKeyword(kw)}>
                         <Trash2 className='w-3.5 h-3.5' />
-                      </button>
+                      </IconButton>
                     </td>
                   )}
                 </tr>
@@ -237,7 +244,7 @@ export function KeywordRankingEditor({ report, keywordRankings, onChange, accent
  */
 export function KeywordRankingTable({ series, accent }) {
   if (!series || series.length === 0) {
-    return <div className='rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-5'><p className='text-sm text-slate-400 text-center py-4'>No keyword ranking data yet.</p></div>;
+    return <div className='card-surface p-5'><InlineEmpty>No keyword ranking data yet.</InlineEmpty></div>;
   }
 
   // Build keyword universe from all reports
@@ -279,7 +286,7 @@ export function KeywordRankingTable({ series, accent }) {
   };
 
   return (
-    <div className='rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-5 mb-6'>
+    <div className='card-surface p-5 mb-6'>
       <h3 className='text-[15px] font-semibold text-slate-900 dark:text-slate-100 mb-1'>Keyword Ranking Tracker</h3>
       <p className='text-xs text-slate-500 dark:text-slate-400 mb-4'>Month-by-month ranking positions for tracked keywords. Lower is better.</p>
       <div className='overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-700'>

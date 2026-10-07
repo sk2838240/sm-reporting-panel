@@ -30,6 +30,13 @@ export default defineConfig([
     },
     rules: {
       ...jsxUsedVars,
+      // This was the one gap that let three real bugs through: components used
+      // in JSX but never imported. `no-undef` does not create a scope reference
+      // for JSXIdentifier nodes, so nothing flagged it, and Rollup treats an
+      // unimported capitalised identifier as a global — so `npm run build`
+      // succeeded too. The page then crashed at runtime with a
+      // ReferenceError. react/jsx-no-undef closes that hole.
+      'react/jsx-no-undef': 'error',
       'react-refresh/only-export-components': 'warn',
       // Deliberate `try { ... } catch {}` fallbacks (optional integrations,
       // best-effort metadata) are used throughout the API layer.

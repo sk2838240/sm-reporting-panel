@@ -93,20 +93,39 @@ function makeZip(files) {
 // File scanning
 // ---------------------------------------------------------------------------
 
-const EXCLUDE_DIRS = ['node_modules', 'dist', '.git', '.vercel', 'public/uploads'];
+const EXCLUDE_DIRS = ['node_modules', 'dist', '.git', '.vercel', 'uploads'];
 const EXCLUDE_FILES = ['.env', 'package-lock.json', '.vite-source-tags.js', 'pnpm-lock.yaml'];
 
 // Files that must never be served, listed or zipped — they hold deployment
 // credentials. Matched against the basename, so nested paths are covered too.
-const DENY_BASENAMES = new Set(['vercel.json', '.env', '.env.local', '.env.production', '.git-credentials', '.npmrc']);
-const DENY_PATTERN = /(^|[._-])(secret|credential|service[_-]?role|private[_-]?key)/i;
+const DENY_BASENAMES = ['vercel.json', '.env', '.git-credentials', '.npmrc', 'npmrc', 'netrc', 'id_rsa', 'id_ed25519'];
+// Covers the naming variants a service-account key actually ships under:
+// `service-role.json` and `service-account.json` (the GCP/Supabase spelling that
+// the earlier pattern missed entirely), plus the raw private-key formats.
+const DENY_PATTERN = /(^|[._-])(secret|credential|service[_-]?(role|account)|private[_-]?key)/i;
+const DENY_EXTENSIONS = ['.pem', '.key', '.p12', '.pfx', '.jks', '.keystore', '.crt'];
 
-function isSensitivePath(relOrBase) {
-  const base = String(relOrBase).split('/').pop();
-  return DENY_BASENAMES.has(base) || DENY_PATTERN.test(base);
+// Blocks a path for every action (list, read, download). Checks every segment,
+// not just the basename: the directory walk already skips EXCLUDE_DIRS, so a
+// basename-only test left ?action=read&path=.git/config and node_modules/**
+// readable. Deny-names match as a *prefix* so a renamed copy carrying the same
+// secrets (vercel.json.bak, .env.staging, npmrc-old) is refused too, and every
+// segment is pattern-tested so a secret-named *directory* cannot be traversed.
+function isBlocked(relPath) {
+  const segments = String(relPath)
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((s) => s && s !== '.');
+  if (!segments.length) return true;
+  if (segments.some((s) => EXCLUDE_DIRS.includes(s) || EXCLUDE_FILES.includes(s))) return true;
+  // A deny-pattern hit anywhere in the path, not only on the final segment:
+  // config/credentials/db.json is as sensitive as credentials.json.
+  if (segments.some((s) => DENY_BASENAMES.some((d) => s.startsWith(d)) || DENY_PATTERN.test(s))) return true;
+  const base = segments[segments.length - 1];
+  return DENY_EXTENSIONS.includes(path.extname(base).toLowerCase());
 }
 
-async function readAllFiles(dir, base = dir) {
+async function readAllFiles(dir, base = dir, parentName = '') {
   const out = [];
   let entries;
   try { entries = await fs.readdir(dir, { withFileTypes: true }); }
@@ -114,13 +133,17 @@ async function readAllFiles(dir, base = dir) {
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (EXCLUDE_DIRS.includes(entry.name)) continue;
-      const sub = await readAllFiles(full, base);
+      // Test the path *into* the directory, so 'public/uploads' is pruned before
+      // the walk descends. Matching on entry.name alone never matched that
+      // two-segment entry: the whole user-upload tree was recursed on every list
+      // and every download, and the files were only discarded afterwards.
+      if (isBlocked(parentName ? `${parentName}/${entry.name}` : entry.name)) continue;
+      const sub = await readAllFiles(full, base, entry.name);
       for (const f of sub) out.push(f);
     } else if (entry.isFile()) {
       if (EXCLUDE_FILES.includes(entry.name)) continue;
       const rel = path.relative(base, full).split(path.sep).join('/');
-      if (isSensitivePath(rel)) continue;
+      if (isBlocked(rel)) continue;
       out.push({ path: rel, abs: full });
     }
   }
@@ -161,7 +184,7 @@ export default withHandler('devop-files', async (req, res) => {
   if (req.method === 'GET' && req.query.action === 'read') {
     const filePath = req.query.path;
     if (!filePath || filePath.includes('..')) return res.status(400).json({ error: 'Invalid path' });
-    if (isSensitivePath(filePath) || EXCLUDE_FILES.includes(String(filePath).split('/').pop())) {
+    if (isBlocked(filePath)) {
       return res.status(403).json({ error: 'File is not readable' });
     }
     const full = path.join(root, filePath);
@@ -178,7 +201,9 @@ export default withHandler('devop-files', async (req, res) => {
     }
   }
 
-  // Download a category as ZIP
+  // Download a category as ZIP. The `list` action advertises six categories;
+  // `public` and `root` had no branch here, so the UI offered two buttons that
+  // always 404'd. Both are handled below.
   if (req.method === 'GET' && req.query.download) {
     const category = req.query.download;
     let filesToZip = [];
@@ -192,8 +217,14 @@ export default withHandler('devop-files', async (req, res) => {
       filesToZip = all.filter(f => f.path.startsWith('src/'));
     } else if (category === 'supabase') {
       filesToZip = all.filter(f => f.path.startsWith('supabase/'));
+    } else if (category === 'public') {
+      filesToZip = all.filter(f => f.path.startsWith('public/'));
+    } else if (category === 'root') {
+      filesToZip = all.filter(f => !f.path.includes('/'));
     } else if (category === 'config') {
       filesToZip = all.filter(f => ['tsconfig.json','tsconfig.app.json','tsconfig.node.json','vite.config.js','eslint.config.js','package.json'].includes(f.path));
+    } else {
+      return res.status(400).json({ error: `Unknown download category: ${category}` });
     }
 
     const zipFiles = [];

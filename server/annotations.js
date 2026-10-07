@@ -37,7 +37,10 @@ export default withHandler('annotations', async (req, res) => {
     const { id } = req.body || {};
     if (!id) return res.status(400).json({ error: 'id required' });
     const { data: ann } = await supabase.from('annotations').select('client_id').eq('id', id).maybeSingle();
-    if (ann && !(await canAccessClient(profile, ann.client_id))) return res.status(403).json({ error: 'Forbidden' });
+    // Fail closed — see the same pattern in notifications.js. A missing row
+    // must 404, not skip the tenant check and continue to the delete.
+    if (!ann) return res.status(404).json({ error: 'Not found' });
+    if (!(await canAccessClient(profile, ann.client_id))) return res.status(403).json({ error: 'Forbidden' });
     if (profile.role === 'client') return res.status(403).json({ error: 'Clients cannot delete annotations' });
     const { error } = await supabase.from('annotations').delete().eq('id', id);
     if (error) throw error;

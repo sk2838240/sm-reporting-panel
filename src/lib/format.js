@@ -19,11 +19,6 @@ export function fmtPct(v, withSign = true) {
   return `${sign}${v.toFixed(1)}%`;
 }
 
-export function fmtDelta(d) {
-  if (!d || d.abs === null || d.abs === undefined) return { text: '—', good: null };
-  const sign = d.abs > 0 ? '+' : '';
-  return { text: `${sign}${fmtRaw(d.abs)}`, good: d.good };
-}
 
 export function monthLabel(year, month) {
   return `${MONTHS[month - 1]} ${year}`;
@@ -42,9 +37,21 @@ export function shortPeriod(label) {
   return String(label).length > 12 ? String(label).slice(0, 12) + '…' : label;
 }
 
+// A date-only string is parsed as UTC per the ES spec, so in any timezone at
+// UTC-1 or west "2025-03-05" renders as Mar 4. Every date the agency enters
+// comes back from a <input type="date"> in exactly that form, so anchor it to
+// local midnight instead. Full ISO timestamps (with a time part) are left alone.
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+export function parseLocalDate(value) {
+  if (value instanceof Date) return value;
+  if (typeof value !== 'string') return new Date(NaN);
+  return new Date(DATE_ONLY.test(value) ? `${value}T00:00:00` : value);
+}
+
 export function formatDate(iso) {
   if (!iso) return '—';
-  const d = new Date(iso);
+  const d = parseLocalDate(iso);
   if (isNaN(d)) return iso;
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }

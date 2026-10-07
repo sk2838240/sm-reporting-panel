@@ -1,5 +1,7 @@
 // Comparison engine. Operates on an array of reports sorted by period_start ASC.
 // getValue(report, metricKey, platform?) -> number | null
+import { parseLocalDate } from './format';
+
 export function getValue(report, key, platform) {
   if (!report) return null;
   let v;
@@ -29,16 +31,57 @@ export function momDelta(series, idx, key, platform, lowerBetter) {
   return compare(cur, prev, lowerBetter);
 }
 
-export function yoyDelta(series, idx, key, platform, lowerBetter) {
-  const cur = getValue(series[idx], key, platform);
-  const target = new Date(new Date(series[idx].period_start).getTime() - 340 * 86400000);
+// Returns the index of the prior-year report for the period at `idx`, or null
+// when there is none. Matching is on the calendar month, not elapsed days:
+// "340 days back" lands between two month-starts and selected the *following*
+// month, so a YoY card compared March against April under a "last year" label.
+function nearestPeriod(series, idx, monthsBack) {
+  // parseLocalDate, not `new Date(x)`: period_start is a Postgres date returned
+  // as "2025-03-01", which ES parses as UTC midnight. West of UTC that is
+  // 28 February locally, so getDate() === 1 was false for every month-aligned
+  // report and the exact-match branch below never ran.
+  const cur = parseLocalDate(series[idx].period_start);
+  if (isNaN(cur)) return null;
+  const targetYear = cur.getFullYear() - monthsBack;
+  const targetMonth = cur.getMonth();
+
+  if (cur.getDate() === 1) {
+    // Month-aligned period: require the same calendar month, exactly one year
+    // back. No fuzzy fallback — a neighbouring month is not "last year", and
+    // accepting one is what made a short history silently report MoM figures.
+    for (let i = idx - 1; i >= 0; i--) {
+      const d = parseLocalDate(series[i].period_start);
+      if (isNaN(d)) continue;
+      if (d.getFullYear() === targetYear && d.getMonth() === targetMonth && d.getDate() === 1) return i;
+    }
+    return null;
+  }
+
+  // Cycle period ("last 30 days"): the start drifts, so allow a narrow window
+  // around the one-year anniversary.
+  const anniversary = new Date(cur);
+  anniversary.setFullYear(anniversary.getFullYear() - monthsBack);
+  const tolMs = 15 * 86400000;
   let best = null, bestDiff = Infinity;
   for (let i = idx - 1; i >= 0; i--) {
-    const d = new Date(series[i].period_start).getTime();
-    const diff = Math.abs(d - target.getTime());
+    // parseLocalDate here too: the cycle branch was left on `new Date()`, so
+    // each candidate was shifted a day west of UTC and the ±15-day window could
+    // settle on the wrong month for cycle periods whose anniversary sat near a
+    // report boundary.
+    const d = parseLocalDate(series[i].period_start);
+    if (isNaN(d)) continue;
+    const diff = Math.abs(d - anniversary);
     if (diff < bestDiff) { bestDiff = diff; best = i; }
-    if (d < target.getTime()) break;
   }
+  return best !== null && bestDiff <= tolMs ? best : null;
+}
+
+export function yoyDelta(series, idx, key, platform, lowerBetter) {
+  const cur = getValue(series[idx], key, platform);
+  const best = nearestPeriod(series, idx, 1);
+  // With no prior-year report, return the current value with no baseline so the
+  // card can say so — previously it fell back to the previous month and showed
+  // MoM numbers under a "last year" label.
   const prev = best !== null ? getValue(series[best], key, platform) : null;
   return compare(cur, prev, lowerBetter);
 }
@@ -74,8 +117,3 @@ export function rangeAggregate(reports, key, platform, mode = 'avg') {
   return vals.reduce((a, b) => a + b, 0) / vals.length;
 }
 
-// Given the full series and a list of period_start dates defining a set, return reports in that set.
-export function selectByPeriods(series, periodStarts) {
-  const set = new Set(periodStarts);
-  return series.filter(r => set.has(r.period_start));
-}

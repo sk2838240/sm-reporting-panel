@@ -8,7 +8,10 @@ export default withHandler('audit', async (req, res) => {
   if (profile.role !== 'super_admin') return res.status(403).json({ error: 'Super admin only' });
 
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
-  const limit = Math.min(Number(req.query.limit) || 100, 500);
+  // Clamp both ends. `Number('-5') || 100` returned -5 (truthy), which
+  // PostgREST rejected — a 500 from a crafted ?limit=-5 in the admin UI.
+  const requested = Number.parseInt(req.query.limit, 10);
+  const limit = Math.min(Math.max(Number.isFinite(requested) && requested > 0 ? requested : 100, 1), 500);
   const { data, error } = await supabase.from('audit_log')
     .select('*').order('created_at', { ascending: false }).limit(limit);
   if (error) throw error;

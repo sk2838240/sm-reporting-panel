@@ -27,7 +27,13 @@ export default withHandler('notifications', async (req, res) => {
     }
     if (!id) return res.status(400).json({ error: 'id required' });
     const { data: n } = await supabase.from('notifications').select('client_id').eq('id', id).maybeSingle();
-    if (n && !(await canAccessClient(profile, n.client_id))) return res.status(403).json({ error: 'Forbidden' });
+    // Fail closed. `if (n && …)` made the authorization check conditional on the
+    // lookup succeeding; a missing row then fell through to the write. Today the
+    // update matches nothing so no cross-tenant write is possible, but the
+    // status was 500 (from .select().single() on an empty result) for what is a
+    // stale-id race, and any refactor of the next line turns this into an IDOR.
+    if (!n) return res.status(404).json({ error: 'Not found' });
+    if (!(await canAccessClient(profile, n.client_id))) return res.status(403).json({ error: 'Forbidden' });
     const { data, error } = await supabase.from('notifications').update({ read: true }).eq('id', id).select().single();
     if (error) throw error;
     return res.status(200).json(data);

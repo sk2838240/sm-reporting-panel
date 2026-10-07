@@ -1,13 +1,44 @@
 import supabase from './db-client.js';
 import { withHandler, getProfile, canAccessClient, audit } from './helpers.js';
 
+// Mirrors the services CHECK constraint in supabase/migrations/0001_init.sql.
+const SERVICE_KEYS = ['seo', 'orm', 'social'];
+
+// Every consumer treats `services` as an array of service keys, and the column
+// is jsonb, so an unvalidated value is stored and then throws in every
+// client-facing component — bricking the admin console for all super admins,
+// with no in-app repair path because the Edit modal lives behind the page that
+// crashed. Normalise on the way in; return null when nothing valid remains.
+function normaliseServices(value) {
+  const list = Array.isArray(value)
+    ? value
+    // A bare string is the most likely hand-crafted/legacy shape; wrap it
+    // rather than rejecting a value that is clearly recoverable.
+    : (typeof value === 'string' ? [value] : null);
+  if (!list) return null;
+  const cleaned = [...new Set(list
+    .map((s) => String(s).trim().toLowerCase())
+    .filter((s) => SERVICE_KEYS.includes(s)))];
+  return cleaned.length ? cleaned : null;
+}
+
+// Every client-facing component indexes SERVICE_META by a value from this list
+// and then reads `.accent`, so an unrecognised key ("pr", "SEO") throws into the
+// ErrorBoundary and blanks the page. Normalise on read as well as on write, so a
+// row stored before the PUT validation — or edited directly in the database —
+// degrades to its valid services instead of bricking the account.
+function sanitiseClient(row) {
+  if (!row) return row;
+  return { ...row, services: normaliseServices(row.services) || [] };
+}
+
 export default withHandler('clients', async (req, res) => {
   const ctx = await getProfile(req);
   if (!ctx) return res.status(401).json({ error: 'Unauthorized' });
   const { profile } = ctx;
 
   if (req.method === 'GET') {
-    const { single, id, search, service, status, assignee } = req.query;
+    const { single, id, search, service, status, assignee, includeArchived } = req.query;
 
     if (single === '1' && id) {
       if (!(await canAccessClient(profile, id))) return res.status(403).json({ error: 'Forbidden' });
@@ -20,7 +51,12 @@ export default withHandler('clients', async (req, res) => {
         const { data: profs } = await supabase.from('profiles').select('id, email, full_name').in('id', ids);
         team = profs || [];
       }
-      return res.status(200).json({ ...(client || {}), team });
+      // `team` is spread ALONGSIDE the sanitised row, never used as a fallback:
+      // `sanitiseClient(client) || { team }` would run the fallback branch only
+      // when the client row is missing, dropping `team` from every real
+      // response — the "Manage access" modal would then show "No team members
+      // assigned" permanently. Keep `{ ...(row || {}), team }` in that order.
+      return res.status(200).json({ ...(sanitiseClient(client) || {}), team });
     }
 
     let q = supabase.from('clients').select('*');
@@ -32,10 +68,19 @@ export default withHandler('clients', async (req, res) => {
       if (!ids.length) return res.status(200).json([]);
       q = q.in('id', ids);
     }
-    if (status) q = q.eq('status', status); else q = q.neq('status', 'archived');
+    // `includeArchived=1` ADDS archived clients to the list rather than
+    // replacing it. The old behaviour meant the admin console's checkbox
+    // labelled "Archived" showed archived ONLY — every active client vanished
+    // when it was ticked, which reads as data loss.
+    if (status) q = q.eq('status', status);
+    // `status <> 'archived'` evaluates to NULL for a NULL status, so those rows
+    // would silently vanish. `or()` keeps them. A pre-existing table may never
+    // have received the NOT NULL from 0001_init.sql's `create table if not
+    // exists`, so this is not hypothetical.
+    else if (includeArchived !== '1') q = q.or('status.is.null,status.neq.archived');
     const { data, error } = await q.order('created_at', { ascending: false });
     if (error) throw error;
-    let rows = data || [];
+    let rows = (data || []).map(sanitiseClient);
     if (search) {
       const s = String(search).toLowerCase();
       rows = rows.filter(c =>
@@ -63,9 +108,17 @@ export default withHandler('clients', async (req, res) => {
     if (profile.role !== 'super_admin') return res.status(403).json({ error: 'Super admin only' });
     const { company_name, contact_name, email, phone, services, logo_url } = req.body || {};
     if (!company_name) return res.status(400).json({ error: 'company_name required' });
+    // Store the NORMALISED value, not the raw one. Validating and then inserting
+    // the input verbatim made the check decorative: ["SEO", " orm "] passed and
+    // was stored as-is, so `c.services.includes('seo')` never matched and
+    // SERVICE_META['SEO'] was undefined in every client-facing component.
+    const normalised = services === undefined ? [...SERVICE_KEYS] : normaliseServices(services);
+    if (normalised === null) {
+      return res.status(400).json({ error: `services must be an array containing at least one of: ${SERVICE_KEYS.join(', ')}` });
+    }
     const { data, error } = await supabase.from('clients').insert({
       company_name, contact_name, email, phone,
-      services: Array.isArray(services) ? services : ['seo', 'orm', 'social'],
+      services: normalised,
       logo_url: logo_url || null, status: 'active',
     }).select().single();
     if (error) throw error;
@@ -103,6 +156,22 @@ export default withHandler('clients', async (req, res) => {
     const allowed = {};
     if (isSuperAdmin) {
       for (const k of COMPANY_FIELDS) if (k in fields) allowed[k] = fields[k];
+    }
+    // `services` is jsonb, so any JSON value would be stored. Every consumer
+    // treats it as an array (`c.services.map(...)` in the client list, the
+    // service tabs, the badge row), so a single bad value throws in every
+    // client-facing component and bricks the admin console for all super admins
+    // — with no in-app way to repair it, because the Edit modal lives behind the
+    // page that crashed. POST already coerced; PUT must validate too.
+    if ('services' in allowed) {
+      const cleaned = normaliseServices(allowed.services);
+      if (!cleaned) {
+        return res.status(400).json({ error: `services must be an array containing at least one of: ${SERVICE_KEYS.join(', ')}` });
+      }
+      allowed.services = cleaned;
+    }
+    if ('company_name' in allowed && !String(allowed.company_name ?? '').trim()) {
+      return res.status(400).json({ error: 'company_name cannot be empty' });
     }
     // Objectives and target visibility are reporting settings the team admin
     // running the account owns, so they are writable by either admin role for

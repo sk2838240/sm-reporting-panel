@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Users, UserPlus, Search, Pencil, Archive, ArchiveRestore, ScrollText, Mail, UserCog, ChevronRight, Building2, KeyRound } from 'lucide-react';
 import { get, post, put, del } from '../lib/api';
-import { Button, Input, Select, Field, Badge, Modal, ConfirmDialog, DataTable, EmptyState, useToast, FullLoader, BackButton } from '../components/ui';
+import { BackButton, Badge, Button, ConfirmDialog, DataTable, EmptyState, Field, FullLoader, InlineEmpty, Input, Modal, SegmentedToggle, Select, useToast } from '../components/ui';
 import { SERVICE_META, SERVICE_ORDER } from '../lib/constants';
 import { formatDate } from '../lib/format';
 
@@ -24,7 +24,7 @@ export default function AdminConsole() {
           <h1 className='text-2xl font-bold text-slate-900 dark:text-slate-100'>Console</h1>
           <p className='text-sm text-slate-500 dark:text-slate-400'>Manage clients, team members, assignments and audit history.</p>
         </div>
-        <div className='flex gap-1 bg-white border border-slate-200 dark:border-slate-700 rounded-xl p-1 bg-white dark:bg-slate-800'>
+        <div className='flex gap-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-1'>
           {tabBtn('clients', 'Clients', Users)}
           {tabBtn('team', 'Team', UserCog)}
           {tabBtn('audit', 'Audit Log', ScrollText)}
@@ -64,7 +64,7 @@ function ClientsTab() {
     setLoading(true);
     try {
       const [c, t] = await Promise.all([
-        get(`/api/clients?status=${showArchived ? 'archived' : ''}&search=${encodeURIComponent(debouncedSearch)}&service=${fService}&assignee=${fAssignee}`),
+        get(`/api/clients?includeArchived=${showArchived ? '1' : '0'}&search=${encodeURIComponent(debouncedSearch)}&service=${fService}&assignee=${fAssignee}`),
         get('/api/team'),
       ]);
       setClients(c || []);
@@ -75,8 +75,10 @@ function ClientsTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  const archive = async (c) => { await put('/api/clients', { id: c.id, action: 'archive' }); push('Client archived', 'success'); load(); };
-  const unarchive = async (c) => { await put('/api/clients', { id: c.id, action: 'unarchive' }); push('Client restored', 'success'); load(); };
+  // Wrapped in try/catch: an unhandled rejection here skipped both the toast and
+  // the reload, so a failed action produced no feedback at all.
+  const archive = async (c) => { try { await put('/api/clients', { id: c.id, action: 'archive' }); push('Client archived', 'success'); load(); } catch (e) { push(e.message, 'error'); } };
+  const unarchive = async (c) => { try { await put('/api/clients', { id: c.id, action: 'unarchive' }); push('Client restored', 'success'); load(); } catch (e) { push(e.message, 'error'); } };
 
   const columns = [
     { key: 'company_name', label: 'Client', render: (c) => (
@@ -90,7 +92,7 @@ function ClientsTab() {
       </button>
     ) },
     { key: 'contact_email', label: 'Email', render: (c) => <span className='text-xs text-slate-500 dark:text-slate-400'>{c.email || '—'}</span> },
-    { key: 'services', label: 'Services', render: (c) => <div className='flex gap-1'>{(c.services || []).map((s) => <Badge key={s} color={SERVICE_BADGE[s]}>{SERVICE_META[s]?.label || s}</Badge>)}</div> },
+    { key: 'services', label: 'Services', render: (c) => <div className='flex gap-1'>{(Array.isArray(c.services) ? c.services : []).map((s) => <Badge key={s} color={SERVICE_BADGE[s]}>{SERVICE_META[s]?.label || s}</Badge>)}</div> },
     { key: 'assignees', label: 'Team', render: (c) => <span className='text-slate-500 dark:text-slate-400'>{c._assignees?.length ? `${c._assignees.length} assigned` : '—'}</span> },
     { key: 'status', label: 'Status', render: (c) => <Badge color={c.status === 'active' ? 'emerald' : 'slate'}>{c.status}</Badge> },
     { key: 'actions', label: '', render: (c) => (
@@ -113,14 +115,14 @@ function ClientsTab() {
         </div>
         <Select value={fService} onChange={(e) => setFService(e.target.value)} className='w-auto'><option value=''>All services</option>{SERVICE_ORDER.map((s) => <option key={s} value={s}>{SERVICE_META[s].label}</option>)}</Select>
         <Select value={fAssignee} onChange={(e) => setFAssignee(e.target.value)} className='w-auto'><option value=''>All assignees</option>{team.map((m) => <option key={m.id} value={m.id}>{m.full_name}</option>)}</Select>
-        <label className='inline-flex items-center gap-2 text-sm text-slate-600 px-3'><input type='checkbox' checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> Archived</label>
-        <Button onClick={() => setEditing({})} accent='#4f46e5' variant='accent'><UserPlus className='w-4 h-4' /> New client</Button>
+        <label className='inline-flex items-center gap-2 text-sm text-slate-600 px-3' title='Include archived clients alongside active ones'><input type='checkbox' checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> Include archived</label>
+        <Button onClick={() => setEditing({})} accent={SERVICE_META.seo.accent} variant='accent'><UserPlus className='w-4 h-4' /> New client</Button>
       </div>
 
       {loading ? <FullLoader /> : clients.length === 0 ? (
-        <EmptyState icon={Users} title='No clients found' message='Create your first client to start reporting.' accent='#6366f1' action={<Button accent='#4f46e5' variant='accent' onClick={() => setEditing({})}><UserPlus className='w-4 h-4' /> New client</Button>} />
+        <EmptyState icon={Users} title='No clients found' message='Create your first client to start reporting.' accent={SERVICE_META.seo.accent} action={<Button accent={SERVICE_META.seo.accent} variant='accent' onClick={() => setEditing({})}><UserPlus className='w-4 h-4' /> New client</Button>} />
       ) : (
-        <div className='rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 overflow-hidden'>
+        <div className='card-surface overflow-hidden'>
           <DataTable columns={columns} rows={clients} empty='No clients.' />
         </div>
       )}
@@ -135,7 +137,9 @@ function ClientsTab() {
 function ClientModal({ client, onClose, onSaved }) {
   const isCreate = !client.id;
   const { push } = useToast();
-  const [form, setForm] = useState({ company_name: client.company_name || '', contact_name: client.contact_name || '', email: client.email || '', phone: client.phone || '', services: client.services || ['seo', 'orm', 'social'], logo_url: client.logo_url || '' });
+  // A row written before the server validated this (or edited directly) could
+  // hold a non-array, which would make .includes() and .map() throw on open.
+  const [form, setForm] = useState({ company_name: client.company_name || '', contact_name: client.contact_name || '', email: client.email || '', phone: client.phone || '', services: Array.isArray(client.services) && client.services.length ? client.services : ['seo', 'orm', 'social'], logo_url: client.logo_url || '' });
   const [saving, setSaving] = useState(false);
   const toggleService = (s) => setForm((f) => ({ ...f, services: f.services.includes(s) ? f.services.filter((x) => x !== s) : [...f.services, s] }));
   const onLogo = async (e) => {
@@ -151,6 +155,9 @@ function ClientModal({ client, onClose, onSaved }) {
   };
   const save = async () => {
     if (!form.company_name) { push('Company name required', 'error'); return; }
+    // A client with no services has nothing to report on, and both detail pages
+    // fall over on SERVICE_META[undefined] when the service list is empty.
+    if (!form.services.length) { push('Select at least one service', 'error'); return; }
     setSaving(true);
     try {
       if (isCreate) { await post('/api/clients', form); push('Client created', 'success'); }
@@ -161,7 +168,7 @@ function ClientModal({ client, onClose, onSaved }) {
   };
   return (
     <Modal open onClose={onClose} title={isCreate ? 'New client' : 'Edit client'} wide
-      footer={<><Button variant='outline' onClick={onClose}>Cancel</Button><Button accent='#4f46e5' variant='accent' disabled={saving} onClick={save}>{saving ? 'Saving...' : 'Save'}</Button></>}>
+      footer={<><Button variant='outline' onClick={onClose}>Cancel</Button><Button accent={SERVICE_META.seo.accent} variant='accent' disabled={saving} onClick={save}>{saving ? 'Saving...' : 'Save'}</Button></>}>
       <div className='grid sm:grid-cols-2 gap-4'>
         <Field label='Company name' className='sm:col-span-2'><Input value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })} placeholder='Acme Inc.' /></Field>
         <Field label='Contact name'><Input value={form.contact_name} onChange={(e) => setForm({ ...form, contact_name: e.target.value })} /></Field>
@@ -180,13 +187,12 @@ function ClientModal({ client, onClose, onSaved }) {
           </div>
         </Field>
         <Field label='Services' className='sm:col-span-2'>
-          <div className='flex flex-wrap gap-2'>
-            {SERVICE_ORDER.map((s) => (
-              <button key={s} type='button' onClick={() => toggleService(s)} className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold border transition ${form.services.includes(s) ? 'text-white' : 'text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'}`} style={form.services.includes(s) ? { backgroundColor: SERVICE_META[s].accent, borderColor: SERVICE_META[s].accent } : undefined}>
-                <span className='w-2 h-2 rounded-full' style={{ background: form.services.includes(s) ? '#fff' : SERVICE_META[s].accent }} /> {SERVICE_META[s].label}
-              </button>
-            ))}
-          </div>
+          <SegmentedToggle
+            ariaLabel='Reporting services'
+            values={form.services}
+            onToggle={toggleService}
+            options={SERVICE_ORDER.map((s) => ({ key: s, label: SERVICE_META[s].label, dot: true, accent: SERVICE_META[s].accent, accentText: SERVICE_META[s].accentText }))}
+          />
         </Field>
       </div>
     </Modal>
@@ -234,8 +240,8 @@ function AccessModal({ client, team, onClose, onChanged }) {
     setAssigned(c.team || []);
     onChanged();
   };
-  const assign = async () => { if (!addId) return; await post('/api/assignments', { clientId: client.id, teamMemberId: addId }); setAddId(''); push('Team member assigned', 'success'); refresh(); };
-  const unassign = async (m) => { await del('/api/assignments', { clientId: client.id, teamMemberId: m.id }); push('Unassigned', 'success'); refresh(); };
+  const assign = async () => { if (!addId) return; try { await post('/api/assignments', { clientId: client.id, teamMemberId: addId }); setAddId(''); push('Team member assigned', 'success'); refresh(); } catch (e) { push(e.message, 'error'); } };
+  const unassign = async (m) => { try { await del('/api/assignments', { clientId: client.id, teamMemberId: m.id }); push('Unassigned', 'success'); refresh(); } catch (e) { push(e.message, 'error'); } };
   const inviteClient = async () => {
     if (!inviteEmail) { push('Enter an email', 'error'); return; }
     try {
@@ -284,7 +290,7 @@ function AccessModal({ client, team, onClose, onChanged }) {
         {/* Assigned team members */}
         <div>
           <h4 className='text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2'>Assigned team members</h4>
-          {assigned.length === 0 ? <p className='text-sm text-slate-400 dark:text-slate-500'>No team members assigned.</p> : (
+          {assigned.length === 0 ? <InlineEmpty>No team members assigned.</InlineEmpty> : (
             <div className='space-y-1.5'>
               {assigned.map((m) => (
                 <div key={m.id} className='flex items-center justify-between rounded-xl border border-slate-200 dark:border-slate-700 px-3 py-2'>
@@ -314,7 +320,7 @@ function AccessModal({ client, team, onClose, onChanged }) {
 
               {/* Reset password buttons */}
               <div className='flex flex-wrap gap-2'>
-                <Button size='sm' accent='#4f46e5' variant='accent' disabled={resetting} onClick={() => resetPassword('send_link')}>
+                <Button size='sm' accent={SERVICE_META.seo.accent} variant='accent' disabled={resetting} onClick={() => resetPassword('send_link')}>
                   <Mail className='w-3.5 h-3.5' /> {resetting ? 'Sending...' : 'Send reset email'}
                 </Button>
                 <Button size='sm' variant='outline' disabled={resetting} onClick={() => resetPassword('temp_password')}>
@@ -358,13 +364,19 @@ function AccessModal({ client, team, onClose, onChanged }) {
               <Input placeholder='Client name' value={inviteName} onChange={(e) => setInviteName(e.target.value)} />
               <Input placeholder='Client email' value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} />
             </div>
-            <Button accent='#4f46e5' variant='accent' className='mt-2' onClick={inviteClient}><Mail className='w-4 h-4' /> Invite client</Button>
+            <Button accent={SERVICE_META.seo.accent} variant='accent' className='mt-2' onClick={inviteClient}><Mail className='w-4 h-4' /> Invite client</Button>
           </div>
         )}
 
-        {inviteResult && !inviteResult.emailSent && !clientUser && (
-          <div className='rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs text-amber-800 dark:text-amber-400'>
-            Email not sent (no Resend key). Share these credentials: <b>{inviteEmail}</b> · temp password: <code className='font-mono'>{inviteResult.tempPassword}</code>
+        {/* No Resend key: the server returns a temp password in the body rather
+            than emailing it. The `!clientUser` guard that used to sit here made
+            this block unreachable — inviteClient() always sets clientUser — so
+            the only copy of the password existed nowhere in the UI and the
+            client could never sign in. */}
+        {inviteResult && !inviteResult.emailSent && inviteResult.tempPassword && (
+          <div className='mt-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs text-amber-800 dark:text-amber-400'>
+            ⚠️ Email not sent (no Resend key configured). Share these credentials manually with the client:<br />
+            email <b>{clientUser?.email || inviteEmail}</b> · temp password <code className='font-mono font-bold text-sm'>{inviteResult.tempPassword}</code>
           </div>
         )}
 
@@ -423,7 +435,23 @@ function TeamTab() {
         <button onClick={() => setResetting(m)} className='p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-indigo-600 dark:hover:text-indigo-400' title='Reset password'><KeyRound className='w-4 h-4' /></button>
         {m.role !== 'super_admin' && (m.status === 'active'
           ? <><button onClick={() => setOffboard(m)} className='px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'>Offboard</button>
-            <button onClick={() => act(m, 'deactivate')} className='px-2.5 py-1.5 rounded-lg text-xs font-semibold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20'>Deactivate</button></>
+            <button
+              onClick={() => {
+                // Deactivating a member who still holds clients orphans those
+                // clients: getProfile() returns null for an inactive user, so
+                // they can never sign in to release them, and the successor
+                // picker filters to active members only, so nobody else can
+                // pick them. Steer to Offboard, which reassigns first.
+                if ((m.clientCount || 0) > 0) {
+                  push(`${m.full_name} still holds ${m.clientCount} client${m.clientCount === 1 ? '' : 's'}. Offboarding lets you reassign them first.`, 'info');
+                  setOffboard(m);
+                } else {
+                  act(m, 'deactivate');
+                }
+              }}
+              title={m.clientCount > 0 ? 'Deactivating keeps their clients assigned to them. Use Offboard to reassign.' : 'Deactivate this account'}
+              className='px-2.5 py-1.5 rounded-lg text-xs font-semibold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20'
+            >Deactivate</button></>
           : <button onClick={() => act(m, 'reactivate')} className='px-2.5 py-1.5 rounded-lg text-xs font-semibold text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20'>Reactivate</button>)}
       </div>
     ) },
@@ -431,9 +459,9 @@ function TeamTab() {
   return (
     <div>
       <div className='flex justify-end mb-4'>
-        <Button accent='#4f46e5' variant='accent' onClick={() => setInvite(true)}><UserPlus className='w-4 h-4' /> Invite team member</Button>
+        <Button accent={SERVICE_META.seo.accent} variant='accent' onClick={() => setInvite(true)}><UserPlus className='w-4 h-4' /> Invite team member</Button>
       </div>
-      {loading ? <FullLoader /> : <div className='rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 overflow-hidden'><DataTable columns={cols} rows={members} /></div>}
+      {loading ? <FullLoader /> : <div className='card-surface overflow-hidden'><DataTable columns={cols} rows={members} /></div>}
       {invite && <InviteTeamModal onClose={() => setInvite(false)} onDone={load} />}
       {offboard && <OffboardModal member={offboard} members={members} onClose={() => setOffboard(null)} onDone={load} />}
       {editing && <EditTeamModal member={editing} onClose={() => setEditing(null)} onDone={load} />}
@@ -454,7 +482,7 @@ function InviteTeamModal({ onClose, onDone }) {
   };
   return (
     <Modal open onClose={onClose} title='Invite team member'
-      footer={<><Button variant='outline' onClick={onClose}>{res ? 'Close' : 'Cancel'}</Button>{!res && <Button accent='#4f46e5' variant='accent' disabled={saving} onClick={submit}>{saving ? 'Sending...' : 'Send invite'}</Button>}</>}>
+      footer={<><Button variant='outline' onClick={onClose}>{res ? 'Close' : 'Cancel'}</Button>{!res && <Button accent={SERVICE_META.seo.accent} variant='accent' disabled={saving} onClick={submit}>{saving ? 'Sending...' : 'Send invite'}</Button>}</>}>
       {!res ? (
         <div className='space-y-3'>
           <Field label='Full name'><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>
@@ -473,16 +501,25 @@ function InviteTeamModal({ onClose, onDone }) {
 function OffboardModal({ member, members, onClose, onDone }) {
   const { push } = useToast();
   const [reassignTo, setReassignTo] = useState('');
+  const [busy, setBusy] = useState(false);
   const others = members.filter((m) => m.id !== member.id && m.status === 'active' && m.role === 'team_admin');
   const submit = async () => {
     if (!reassignTo) { push('Pick a team member to reassign clients to', 'error'); return; }
-    await put('/api/team', { id: member.id, action: 'offboard', reassignTo });
-    push('Team member offboarded & clients reassigned', 'success');
-    onDone(); onClose();
+    setBusy(true);
+    try {
+      await put('/api/team', { id: member.id, action: 'offboard', reassignTo });
+      push('Team member offboarded & clients reassigned', 'success');
+      onDone(); onClose();
+    } catch (e) {
+      // Surfaced rather than swallowed: the server now refuses the whole
+      // operation if the successor is invalid, and that has to reach the admin.
+      push(e.message, 'error');
+    }
+    setBusy(false);
   };
   return (
     <Modal open onClose={onClose} title={`Offboard ${member.full_name}?`}
-      footer={<><Button variant='outline' onClick={onClose}>Cancel</Button><Button variant='danger' onClick={submit}>Offboard & reassign</Button></>}>
+      footer={<><Button variant='outline' onClick={onClose}>Cancel</Button><Button variant='danger' disabled={busy} onClick={submit}>{busy ? 'Offboarding...' : 'Offboard & reassign'}</Button></>}>
       <p className='text-sm text-slate-600 mb-3'>This deactivates the account and reassigns all their clients to another team member.</p>
       <Field label='Reassign clients to'><Select value={reassignTo} onChange={(e) => setReassignTo(e.target.value)}><option value=''>Select...</option>{others.map((m) => <option key={m.id} value={m.id}>{m.full_name}</option>)}</Select></Field>
     </Modal>
@@ -507,7 +544,7 @@ function EditTeamModal({ member, onClose, onDone }) {
   };
   return (
     <Modal open onClose={onClose} title={`Edit — ${member.full_name}`}
-      footer={<><Button variant='outline' onClick={onClose}>Cancel</Button><Button accent='#4f46e5' variant='accent' disabled={saving} onClick={save}>{saving ? 'Saving...' : 'Save changes'}</Button></>}>
+      footer={<><Button variant='outline' onClick={onClose}>Cancel</Button><Button accent={SERVICE_META.seo.accent} variant='accent' disabled={saving} onClick={save}>{saving ? 'Saving...' : 'Save changes'}</Button></>}>
       <div className='space-y-4'>
         <Field label='Full name'><Input value={name} onChange={(e) => setName(e.target.value)} placeholder='Full name' /></Field>
         <Field label='Email' hint='Changing the email also updates their login email.'><Input type='email' value={email} onChange={(e) => setEmail(e.target.value)} placeholder='Email address' /></Field>
@@ -541,7 +578,7 @@ function ResetTeamPasswordModal({ member, onClose }) {
           <div><div className='text-sm font-semibold text-slate-800 dark:text-slate-200'>{member.email}</div><div className='text-xs text-slate-400 dark:text-slate-500'>{member.role === 'super_admin' ? 'Super Admin' : 'Team Admin'}</div></div>
         </div>
         <div className='flex flex-wrap gap-2'>
-          <Button accent='#4f46e5' variant='accent' disabled={resetting} onClick={() => doReset('send_link')}><Mail className='w-3.5 h-3.5' /> {resetting ? 'Sending...' : 'Send reset email'}</Button>
+          <Button accent={SERVICE_META.seo.accent} variant='accent' disabled={resetting} onClick={() => doReset('send_link')}><Mail className='w-3.5 h-3.5' /> {resetting ? 'Sending...' : 'Send reset email'}</Button>
           <Button variant='outline' disabled={resetting} onClick={() => doReset('temp_password')}><KeyRound className='w-3.5 h-3.5' /> {resetting ? 'Generating...' : 'Generate temp password'}</Button>
         </div>
         {result && result.method === 'send_link' && result.emailSent && (
@@ -573,5 +610,5 @@ function AuditTab() {
     { key: 'entity_type', label: 'Entity', render: (r) => <span className='text-slate-500'>{r.entity_type}{r.entity_id ? ` #${String(r.entity_id).slice(0, 6)}` : ''}</span> },
     { key: 'details', label: 'Details', render: (r) => <span className='text-xs text-slate-400 font-mono'>{r.details ? JSON.stringify(r.details).slice(0, 60) : ''}</span> },
   ];
-  return <div className='rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 overflow-hidden'>{loading ? <FullLoader /> : <DataTable columns={cols} rows={rows} empty='No audit entries yet.' />}</div>;
+  return <div className='card-surface overflow-hidden'>{loading ? <FullLoader /> : <DataTable columns={cols} rows={rows} empty='No audit entries yet.' />}</div>;
 }

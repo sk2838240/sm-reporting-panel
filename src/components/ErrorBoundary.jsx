@@ -1,5 +1,28 @@
 import { Component } from 'react';
+import { useRouteError } from 'react-router-dom';
 import { AlertCircle, RefreshCw } from 'lucide-react';
+
+/*
+ * Bridge for use as a route `errorElement`.
+ *
+ * React Router renders a route's errorElement as a CHILD of an internal context
+ * provider — it does not pass the error as a prop:
+ *
+ *   createElement(RouteErrorContext.Provider, { value: error, children: errorElement })
+ *
+ * So a bare <ErrorBoundary /> as errorElement received props.error === undefined,
+ * getDerivedStateFromProps found nothing to latch onto, and render() returned its
+ * own children (undefined) — a crashing route produced a blank page, which is
+ * exactly what this boundary exists to prevent. The error is only reachable via
+ * useRouteError(), and that is a hook, so it needs a function component.
+ *
+ * Likewise `reset`: React Router does not pass one either. Recovery is a reload,
+ * which the button already does.
+ */
+export function RouteErrorBoundary() {
+  const error = useRouteError();
+  return <ErrorBoundary error={error} />;
+}
 
 export default class ErrorBoundary extends Component {
   constructor(props) {
@@ -11,6 +34,13 @@ export default class ErrorBoundary extends Component {
     return { hasError: true, error };
   }
 
+  // Covers the errorElement case, where the error arrives as a prop from
+  // RouteErrorBoundary above rather than being thrown into a child.
+  static getDerivedStateFromProps(props, state) {
+    if (props.error && !state.hasError) return { hasError: true, error: props.error };
+    return null;
+  }
+
   componentDidCatch(error, errorInfo) {
     console.error('ErrorBoundary caught:', error, errorInfo);
   }
@@ -18,17 +48,17 @@ export default class ErrorBoundary extends Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div className='min-h-screen flex items-center justify-center bg-slate-50 px-6'>
+        <div className='min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 px-6'>
           <div className='text-center max-w-md'>
-            <div className='flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-50 text-rose-500 mx-auto mb-5'>
+            <div className='flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-50 dark:bg-rose-900/30 text-rose-500 mx-auto mb-5'>
               <AlertCircle className='w-8 h-8' />
             </div>
-            <h2 className='text-xl font-bold text-slate-900'>Something went wrong</h2>
-            <p className='text-sm text-slate-500 mt-2 mb-1'>An unexpected error occurred while rendering this page.</p>
-            <pre className='text-xs text-slate-400 bg-slate-100 rounded-lg p-3 mt-3 mb-5 overflow-auto max-h-32 text-left'>{this.state.error?.message || String(this.state.error)}</pre>
+            <h2 className='text-xl font-bold text-slate-900 dark:text-slate-100'>Something went wrong</h2>
+            <p className='text-sm text-slate-500 dark:text-slate-400 mt-2 mb-1'>An unexpected error occurred while rendering this page.</p>
+            <pre className='text-xs text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800 rounded-lg p-3 mt-3 mb-5 overflow-auto max-h-32 text-left'>{this.state.error?.message || String(this.state.error)}</pre>
             <button
-              onClick={() => { this.setState({ hasError: false, error: null }); window.location.href = '/app'; }}
-              className='inline-flex items-center gap-2 rounded-xl bg-slate-900 text-white px-5 py-2.5 text-sm font-semibold hover:bg-slate-800'
+              onClick={() => { window.location.href = '/app'; }}
+              className='inline-flex items-center gap-2 rounded-xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 px-5 py-2.5 text-sm font-semibold hover:bg-slate-800 dark:hover:bg-white'
             >
               <RefreshCw className='w-4 h-4' /> Reload dashboard
             </button>

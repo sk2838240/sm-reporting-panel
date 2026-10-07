@@ -21,6 +21,14 @@ export default withHandler('reset-password', async (req, res) => {
   if (profErr || !targetProfile) return res.status(404).json({ error: 'User not found' });
 
   const origin = siteOrigin(req);
+  // An origin is only required to BUILD A LINK. The temp_password path below
+  // works without one — the admin gets the new password in the API response and
+  // shares it manually — so guarding it here turned a degraded-but-usable flow
+  // into a hard 500. Only the redirect URL genuinely needs it, and Supabase
+  // falls back to its own configured Site URL when redirectTo is omitted.
+  if (action === 'send_link' && !origin) {
+    console.error('[reset-password] no site origin configured; sending the reset link without a redirect target');
+  }
 
   // Mode 1: Send a password reset link email (uses Supabase's built-in email service)
   if (action === 'send_link') {
@@ -32,7 +40,11 @@ export default withHandler('reset-password', async (req, res) => {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
     );
     const { error: resetErr } = await anonClient.auth.resetPasswordForEmail(targetProfile.email, {
-      redirectTo: `${origin}/reset-password`,
+      // Omitted entirely when no origin is configured: sending
+      // `${origin}/reset-password` with an empty origin produced a link to
+      // "//reset-password", which Supabase rejects. Without redirectTo it falls
+      // back to the Site URL set in the Supabase dashboard.
+      ...(origin ? { redirectTo: `${origin}/reset-password` } : {}),
     });
 
     if (resetErr) {
@@ -49,7 +61,7 @@ export default withHandler('reset-password', async (req, res) => {
           <p>Hi ${targetProfile.full_name || ''},</p>
           <p>Your dashboard password has been reset by an administrator. Sign in with your email and this new temporary password:</p>
           <p style="font-family:monospace;background:#f3f4f6;padding:10px;border-radius:8px">${tempPassword}</p>
-          <p><a href="${origin}/login" style="background:#4f46e5;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Sign in</a></p></div>`,
+          ${origin ? `<p><a href="${origin}/login" style="background:#4f46e5;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Sign in</a></p>` : ''}</div>`,
       });
 
       await audit(profile, 'user.password_reset', 'profile', userId, { targetEmail: targetProfile.email, method: 'temp_password_fallback', emailSent: emailRes.sent });
@@ -87,7 +99,7 @@ export default withHandler('reset-password', async (req, res) => {
       <p>Hi ${targetProfile.full_name || ''},</p>
       <p>Your dashboard password has been reset by an administrator. Sign in with your email and this new temporary password:</p>
       <p style="font-family:monospace;background:#f3f4f6;padding:10px;border-radius:8px">${tempPassword}</p>
-      <p><a href="${origin}/login" style="background:#4f46e5;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Sign in</a></p>
+      ${origin ? `<p><a href="${origin}/login" style="background:#4f46e5;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Sign in</a></p>` : ''}
       <p style="color:#888;font-size:12px">If you didn't expect this reset, please contact your account manager.</p></div>`,
   });
 

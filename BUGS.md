@@ -898,10 +898,11 @@ These cannot be done from the code and must be performed by whoever owns the dep
    - `ALLOWED_ORIGINS` — optional, comma-separated list for cross-origin access (same-origin needs nothing)
    - `RESEND_API_KEY`, `RESEND_FROM` — optional, for transactional email
    - `BOOTSTRAP_SUPER_ADMIN_EMAIL` — **required once**, on a fresh database only; see below
+   - `SITE_ORIGIN` — **optional but recommended.** Used to build the links inside password-reset and invite emails. If unset, the server falls back to Vercel's own `VERCEL_PROJECT_PRODUCTION_URL` / `VERCEL_URL` (set automatically, not forgeable by a request header), so a stock deployment works. The `Host` request header is deliberately **not** trusted unless `ALLOW_HOST_ORIGIN=1` is set, because a forged `Host` would place a valid reset link on an attacker's domain.
 
    The public values (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_*`, `VITE_GOOGLE_CLIENT_ID`) remain in `vercel.json` because they are inlined into the client bundle by design. Move them to Vercel env vars too if you prefer.
 
-3. **Run migrations `0003_real_columns.sql` and `0004_rls_coverage.sql`.** `0003` adds `reports.delete_requested`, `clients.objectives` and `clients.targets_visible`, migrates any objectives stored in `phone` across, and strips the old `_delete_requested` JSONB flag. `0004` enables RLS on the seven unprotected tables. Until they run, objectives and the targets-visibility toggle will error against the new code, and the database remains readable with the public anon key.
+3. **Run migrations `0003_real_columns.sql` through `0005_compare_visible.sql`.** `0003` adds `reports.delete_requested`, `clients.objectives` and `clients.targets_visible`, migrates any objectives stored in `phone` across, and strips the old `_delete_requested` JSONB flag. `0004` enables RLS on the seven unprotected tables. `0005` adds `clients.compare_visible`. Until they run, objectives, the targets-visibility toggle and the compare-visibility toggle will error against the new code, and the database remains readable with the public anon key.
 
    > The migration sets `clients.phone` to `NULL` for any row whose phone held objectives. **Those phone numbers are not recoverable** — they were overwritten by the old code before this audit. The migration leaves genuinely-invalid JSON untouched.
 

@@ -2,6 +2,60 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* ------------------------------------------------------------------
+   Design tokens.
+
+   There was no tailwind.config and no @theme block, so the "design
+   system" was src/components/ui.jsx and roughly 70% of the UI was
+   written outside it — which is how 24 near-identical hand-rolled card
+   class strings and 11 different tab strips accumulated. These tokens
+   give the shared primitives a single source for the surface, border,
+   radius and focus treatments so they stop drifting.
+   ------------------------------------------------------------------ */
+@theme {
+  /* Surfaces. One value for "a card" and one for "a nested row inside it",
+     so a dashboard card and an editor card cannot end up different. */
+  --color-surface: #ffffff;
+  --color-surface-dark: #1e293b;      /* slate-800 */
+  --color-surface-sunken: #f8fafc;    /* slate-50 */
+  --color-surface-sunken-dark: #0f172a;
+
+  /* Borders. Previously border-slate-200/80 on the real Card versus
+     border-slate-200 on the 24 hand-rolled copies. */
+  --color-edge: #e2e8f0;              /* slate-200 */
+  --color-edge-dark: #334155;         /* slate-700 */
+
+  /* Focus ring. Inputs had focus:ring-2 focus:ring-indigo-500/40 while
+     buttons fell back to the UA outline — two focus languages on one screen. */
+  --color-focus: #6366f1;             /* indigo-500 */
+  --radius-card: 1rem;                 /* = rounded-2xl */
+  --radius-row: 0.75rem;               /* = rounded-xl */
+}
+
+/* The single definition of a card surface, consumed by `card-surface` at every
+   one of the 24 call sites and by <Card> in ui.jsx. It used to be a JS string
+   in ui.jsx PLUS 23 copies of the literal PLUS this token block — three places
+   to edit. This is the only one. */
+@layer components {
+  .card-surface {
+    border-radius: var(--radius-card);
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-edge);
+    /* v4's --shadow-sm. Do NOT substitute v3's value: in v4 `shadow-sm` is
+       `0 1px 3px 0 rgb(0 0 0/.1), 0 1px 2px -1px rgb(0 0 0/.1)` and the
+       2px/5% one is `shadow-xs`. Hardcoding the v3 number made all 24 cards
+       visibly flatter than the ones the utility still applied. */
+    box-shadow: var(--shadow-sm);
+  }
+  .dark .card-surface {
+    background-color: var(--color-surface-dark);
+    border-color: var(--color-edge-dark);
+  }
+  .row-surface {
+    border-radius: var(--radius-row);
+  }
+}
+
 html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 body { font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
 
@@ -11,8 +65,27 @@ body { font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI'
 .dark ::-webkit-scrollbar-thumb { background: #334155; }
 .dark ::-webkit-scrollbar-thumb:hover { background: #475569; }
 
-/* Color transitions for dark mode toggling */
-*, *::before, *::after { transition: background-color 0.2s ease, border-color 0.2s ease; }
+/* One focus ring for every interactive element. Previously only inputs had
+   one, so a keyboard user got an indigo ring on a text field and the UA
+   default outline on the button next to it. */
+@layer base {
+  :where(a, button, input, select, textarea, [tabindex]:not([tabindex="-1"])):focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+    border-radius: 0.25rem;
+  }
+}
+
+/* Color transitions for dark mode toggling.
+   Must live in @layer base: Tailwind v4 emits its utilities in a cascade layer,
+   and an UNLAYERED rule outranks every layered one regardless of specificity.
+   Left outside a layer, this `*` rule overrode `transition-all`,
+   `transition-transform` and `transition-shadow` app-wide — the `transition`
+   shorthand resets the property list, so hover shadows, opacity fades and
+   framer-motion transforms silently stopped animating. */
+@layer base {
+  *, *::before, *::after { transition-property: background-color, border-color; transition-duration: 0.2s; transition-timing-function: ease; }
+}
 
 @media print {
   .no-print { display: none !important; }
@@ -20,5 +93,16 @@ body { font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI'
   body { background: #fff !important; }
   .shadow-sm, .shadow-md, .shadow-lg, .shadow-xl { box-shadow: none !important; }
   .rounded-2xl { border-radius: 0.5rem !important; }
+  /* The 24 card surfaces no longer carry `shadow-sm`/`rounded-2xl` as class
+     names — they use `.card-surface` — so the two rules above stopped matching
+     them and printed client dashboards went out with drop shadows and 1rem
+     corners. The ClientDashboard "Print / Save as PDF" button is a client-facing
+     path, so this is not cosmetic. */
+  .card-surface {
+    box-shadow: none !important;
+    border-radius: 0.5rem !important;
+    border: 1px solid #cbd5e1 !important;
+    background: #fff !important;
+  }
   a { text-decoration: none !important; }
 }

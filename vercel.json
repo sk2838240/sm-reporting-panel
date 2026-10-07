@@ -2,9 +2,12 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "redirects": [
+    { "source": "/_source/:path*", "destination": "/404", "permanent": false }
+  ],
   "rewrites": [
     { "source": "/api/:route", "destination": "/api/router?route=:route" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "env": {
     "NEXT_PUBLIC_SUPABASE_URL": "https://ggerocxvxxgnyqhswwju.supabase.co",

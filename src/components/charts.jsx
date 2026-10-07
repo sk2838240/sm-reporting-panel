@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useId } from 'react';
 import { fmtRaw } from '../lib/format';
 
 /* TrendChart: responsive SVG line chart with optional trailing-average, target
@@ -11,6 +11,11 @@ export function TrendChart({ data, color = '#6366f1', target = null, trailing = 
   const [hover, setHover] = useState(null);
   const [hoverAnn, setHoverAnn] = useState(null);
   const wrapRef = useRef(null);
+  // Must be unique per rendered chart. Deriving it from the colour alone gave
+  // every chart sharing an accent the same <linearGradient id>, so the browser
+  // resolved each url(#...) reference to the first match in the document.
+  // useId() is stable across renders, so the gradient is not regenerated.
+  const gid = 'grad-' + useId().replace(/:/g, '');
 
   if (!data || data.length === 0) {
     return <div className='flex items-center justify-center text-sm text-slate-400 dark:text-slate-500' style={{ height }}>No trend data yet.</div>;
@@ -65,7 +70,6 @@ export function TrendChart({ data, color = '#6366f1', target = null, trailing = 
     setHover(best);
   };
 
-  const gid = 'grad-' + color.replace('#', '');
   // Annotation markers: map period_start -> note
   const annMap = {};
   if (annotations) annotations.forEach(a => { annMap[a.period_start] = a.note; });
@@ -171,8 +175,3 @@ export function ComparisonBars({ current, previous, color = '#6366f1', height = 
   );
 }
 
-/* MiniBars for breakdown category comparison (optional). */
-export function MiniBar({ value, max, color }) {
-  const pct = max > 0 ? (value / max) * 100 : 0;
-  return <div className='h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden'><div className='h-full rounded-full' style={{ width: `${pct}%`, backgroundColor: color }} /></div>;
-}

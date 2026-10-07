@@ -1,6 +1,6 @@
 import { Download, FileCode, Database, Folder, FileJson, Search, Copy, Check, Github, Layers, Package } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
-import { Badge, FullLoader, useToast, BackButton } from '../components/ui';
+import { Badge, FullLoader, useToast, BackButton, InlineEmpty, SegmentedControl } from '../components/ui';
 import { authHeaders } from '../lib/api';
 
 export default function DevOpPage() {
@@ -54,6 +54,20 @@ export default function DevOpPage() {
     setLoadingContent(false);
   };
 
+  // Firefox ignores click() on a detached anchor — the download silently does
+  // nothing while the success toast still fires. Attach first and revoke on a
+  // later tick, otherwise revoking synchronously can cancel the read.
+  const saveBlob = (blob, filename) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+
   const downloadAll = async () => {
     setDownloading(true);
     try {
@@ -65,14 +79,9 @@ export default function DevOpPage() {
         throw new Error(data.error || 'Download failed');
       }
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'agency-portal-project.zip';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      // Same reason as saveBlob's existence: revoking synchronously cancels the
+      // read in Firefox, so the user got no file and a success toast.
+      saveBlob(blob, 'agency-portal-project.zip');
       push('Project ZIP downloaded', 'success');
     } catch (e) { push(e.message || 'Download failed', 'error'); }
     setDownloading(false);
@@ -80,32 +89,26 @@ export default function DevOpPage() {
 
   const downloadTableData = (table) => {
     if (!dbData || !dbData.data?.[table]) return;
-    const blob = new Blob([JSON.stringify({ table, rowCount: dbData.rowCounts?.[table], sample: dbData.data[table] }, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${table}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    saveBlob(new Blob([JSON.stringify({ table, rowCount: dbData.rowCounts?.[table], sample: dbData.data[table] }, null, 2)], { type: 'application/json' }), `${table}.json`);
     push(`${table} downloaded`, 'success');
   };
 
   const downloadDb = () => {
     if (!dbData) return;
-    const blob = new Blob([JSON.stringify(dbData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'agency-portal-database.json';
-    a.click();
-    URL.revokeObjectURL(url);
+    saveBlob(new Blob([JSON.stringify(dbData, null, 2)], { type: 'application/json' }), 'agency-portal-database.json');
     push('Database snapshot downloaded', 'success');
   };
 
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(fileContent);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const copyToClipboard = async () => {
+    // writeText returns a promise; without awaiting it the button claimed
+    // "Copied" even when permission was denied or the context was insecure.
+    try {
+      await navigator.clipboard.writeText(fileContent || '');
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      push('Could not access the clipboard', 'error');
+    }
   };
 
   const filteredFiles = (fileList.files || []).filter(f =>
@@ -136,8 +139,12 @@ export default function DevOpPage() {
             </div>
           </div>
           <div className='flex flex-wrap gap-2 mt-3'>
-            <Badge color='indigo'><Github className='w-3 h-3' /> Self-updating</Badge>
-            <Badge color='emerald'>Vite + React 19 + TypeScript</Badge>
+            {/* Both of these previously claimed capabilities the repo does not
+                have: there is no auto-update, git integration or webhook
+                anywhere ("Self-updating"), and src/ is entirely .jsx/.js — the
+                tsconfig files exist but no .ts/.tsx source does. */}
+            <Badge color='indigo'><Github className='w-3 h-3' /> Read-only browser</Badge>
+            <Badge color='emerald'>Vite + React 19 + JavaScript</Badge>
             <Badge color='amber'>Supabase + Postgres</Badge>
             <Badge color='sky'>{fileList.total || 0} files</Badge>
           </div>
@@ -171,22 +178,32 @@ export default function DevOpPage() {
               className='inline-flex items-center gap-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition'>
               <Database className='w-4 h-4 text-indigo-500' />
               Database Snapshot (.json)
-              <span className='text-xs text-slate-400 dark:text-slate-500'>· {Object.values(dbData.rowCounts || {}).reduce((a, b) => a + b, 0)} rows</span>
+              {/* The export contains SAMPLE_ROWS per table, not the full counts
+                  below — labelling it with the row total implied a full dump. */}
+              <span className='text-xs text-slate-400 dark:text-slate-500'>&middot; sample of {Object.values(dbData.rowCounts || {}).reduce((a, b) => a + b, 0)} total rows</span>
             </button>
           )}
         </div>
 
         {/* Tabs */}
-        <div className='flex gap-1 mb-5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-1 w-fit'>
-          <button onClick={() => setTab('files')} className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition ${tab === 'files' ? 'bg-slate-900 text-white dark:bg-slate-700' : 'text-slate-600 dark:text-slate-300'}`}><Folder className='w-4 h-4' /> Files</button>
-          <button onClick={() => setTab('database')} className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition ${tab === 'database' ? 'bg-slate-900 text-white dark:bg-slate-700' : 'text-slate-600 dark:text-slate-300'}`}><Database className='w-4 h-4' /> Database</button>
-        </div>
+        {/* tone='neutral' + the sm size: the unselected state previously had no
+            hover at all, the only buttons in the app giving no pointer feedback. */}
+        <SegmentedControl
+          tone='neutral' ariaLabel='DevOps section'
+          className='mb-5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-1 w-fit'
+          value={tab}
+          onChange={setTab}
+          options={[
+            { key: 'files', label: 'Files', icon: Folder },
+            { key: 'database', label: 'Database', icon: Database },
+          ]}
+        />
 
         {/* Files tab */}
         {tab === 'files' && (
           <div className='grid lg:grid-cols-3 gap-4'>
             {/* File tree */}
-            <div className='lg:col-span-1 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col' style={{ maxHeight: '70vh' }}>
+            <div className='lg:col-span-1 card-surface overflow-hidden flex flex-col' style={{ maxHeight: '70vh' }}>
               <div className='p-3 border-b border-slate-100 dark:border-slate-700'>
                 <div className='relative'>
                   <Search className='absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400' />
@@ -209,7 +226,7 @@ export default function DevOpPage() {
             </div>
 
             {/* File viewer */}
-            <div className='lg:col-span-2 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col' style={{ maxHeight: '70vh' }}>
+            <div className='lg:col-span-2 card-surface overflow-hidden flex flex-col' style={{ maxHeight: '70vh' }}>
               {activeFile ? (
                 <>
                   <div className='flex items-center justify-between px-4 py-2.5 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50'>
@@ -227,7 +244,7 @@ export default function DevOpPage() {
               ) : (
                 <div className='flex flex-col items-center justify-center flex-1 text-center p-8'>
                   <FileCode className='w-12 h-12 text-slate-300 dark:text-slate-600 mb-3' />
-                  <p className='text-sm text-slate-400 dark:text-slate-500'>Select a file from the list to view its contents</p>
+                  <InlineEmpty>Select a file from the list to view its contents</InlineEmpty>
                 </div>
               )}
             </div>
@@ -242,12 +259,12 @@ export default function DevOpPage() {
                 <div className='grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-2'>
                   <StatCard label='Tables' value={dbData.tables?.length || 0} color='#6366f1' />
                   <StatCard label='Total Rows' value={Object.values(dbData.rowCounts || {}).reduce((a, b) => a + b, 0)} color='#10b981' />
-                  <StatCard label='Migrations' value={2} color='#0ea5e9' />
+                  <StatCard label='Migrations' value={5} color='#0ea5e9' />
                   <StatCard label='API Routes' value={fileList.categories?.api?.length || 0} color='#f59e0b' />
                 </div>
 
                 {(dbData.tables || []).map((table) => (
-                  <div key={table} className='rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 overflow-hidden'>
+                  <div key={table} className='card-surface overflow-hidden'>
                     <div className='flex items-center justify-between px-5 py-3 border-b border-slate-100 dark:border-slate-700'>
                       <div className='flex items-center gap-2'>
                         <Database className='w-4 h-4 text-indigo-500' />
@@ -293,7 +310,7 @@ export default function DevOpPage() {
                   </div>
                 ))}
               </>
-            ) : <p className='text-sm text-slate-400 text-center py-8'>Failed to load database info.</p>}
+            ) : <InlineEmpty>Failed to load database info.</InlineEmpty>}
           </div>
         )}
       </div>
@@ -303,7 +320,7 @@ export default function DevOpPage() {
 
 function StatCard({ label, value, color }) {
   return (
-    <div className='rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-4'>
+    <div className='card-surface p-4'>
       <div className='text-2xl font-bold' style={{ color }}>{value}</div>
       <div className='text-xs text-slate-400 dark:text-slate-500 mt-0.5'>{label}</div>
     </div>

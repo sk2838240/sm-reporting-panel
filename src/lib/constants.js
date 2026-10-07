@@ -89,9 +89,13 @@ export const SERVICE_META = {
     tagline: 'Per-platform follower & engagement reporting',
     hasPlatforms: true,
     platforms: [
-      { key: 'instagram', label: 'Instagram', color: '#ec4899' },
-      { key: 'facebook', label: 'Facebook', color: '#1877f2' },
-      { key: 'linkedin', label: 'LinkedIn', color: '#0a66c2' },
+      // `color` is the brand hue for charts and unselected accents. `colorText`
+      // is the darker, accessible shade to put white text ON — Instagram's
+      // #ec4899 with white text is 3.1:1, below the 4.5:1 WCAG AA threshold, so
+      // the selected pill used a shade that failed contrast.
+      { key: 'instagram', label: 'Instagram', color: '#ec4899', colorText: '#9d174d' },
+      { key: 'facebook', label: 'Facebook', color: '#1877f2', colorText: '#0b4fbb' },
+      { key: 'linkedin', label: 'LinkedIn', color: '#0a66c2', colorText: '#08447f' },
     ],
     coreMetrics: [
       { key: 'followers', label: 'Followers', lowerBetter: false, format: 'int' },
@@ -117,7 +121,6 @@ export const SERVICE_META = {
 
 export const SERVICE_ORDER = ['seo', 'orm', 'social'];
 
-export function getMeta(service) { return SERVICE_META[service]; }
 export function coreKeys(service) { return (SERVICE_META[service]?.coreMetrics || []).map(m => m.key); }
 export function isCore(service, key) { return coreKeys(service).includes(key); }
 
