@@ -60,9 +60,8 @@ export function MetricInfo({ service, metricKey, name }) {
     setFetched(true);
     try {
       const data = await get(`/api/metric-definitions?service=${encodeURIComponent(service)}&metricKey=${encodeURIComponent(metricKey)}`);
-      const override = data?.definitions?.[metricKey];
       // An absent override is the normal case, not a failure — keep the default.
-      if (override) setDefinition(override);
+      if (data?.definition) setDefinition(data.definition);
     } catch {
       // Offline, or the route is unavailable. The built-in default is already
       // on screen, so there is nothing to report.

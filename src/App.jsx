@@ -75,6 +75,7 @@ const router = createBrowserRouter([
     { path: '/app', element: <ProtectedRoute><Layout><RoleHome /></Layout></ProtectedRoute>, errorElement: routeError },
     { path: '/app/team', element: <ProtectedRoute roles={['super_admin']}><Layout><AdminConsole /></Layout></ProtectedRoute>, errorElement: routeError },
     { path: '/app/audit', element: <ProtectedRoute roles={['super_admin']}><Layout><AdminConsole /></Layout></ProtectedRoute>, errorElement: routeError },
+    { path: '/app/definitions', element: <ProtectedRoute roles={['super_admin']}><Layout><AdminConsole /></Layout></ProtectedRoute>, errorElement: routeError },
     { path: '/app/clients/:clientId', element: <ProtectedRoute roles={['super_admin', 'team_admin']}><Layout><Suspense fallback={<SuspenseFallback />}><ClientDetail /></Suspense></Layout></ProtectedRoute>, errorElement: routeError },
     { path: '/app/clients/:clientId/dashboard', element: <ProtectedRoute roles={['super_admin', 'team_admin']}><Layout><Suspense fallback={<SuspenseFallback />}><ClientDashboard /></Suspense></Layout></ProtectedRoute>, errorElement: routeError },
     { path: '/app/reports/:reportId/edit', element: <ProtectedRoute roles={['super_admin', 'team_admin']}><Layout><Suspense fallback={<SuspenseFallback />}><ReportEditor /></Suspense></Layout></ProtectedRoute>, errorElement: routeError },

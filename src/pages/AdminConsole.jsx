@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Users, UserPlus, Search, Pencil, Archive, ArchiveRestore, ScrollText, Mail, UserCog, ChevronRight, Building2, KeyRound } from 'lucide-react';
+import { Users, UserPlus, Search, Pencil, Archive, ArchiveRestore, ScrollText, Mail, UserCog, ChevronRight, Building2, KeyRound, BookOpen } from 'lucide-react';
 import { get, post, put, del } from '../lib/api';
 import { BackButton, Badge, Button, ConfirmDialog, DataTable, EmptyState, Field, FullLoader, InlineEmpty, Input, Modal, SegmentedToggle, Select, useToast } from '../components/ui';
 import { SERVICE_META, SERVICE_ORDER } from '../lib/constants';
+import MetricDefinitionsTab from '../components/MetricDefinitions';
 import { formatDate } from '../lib/format';
 
 const SERVICE_BADGE = { seo: 'indigo', orm: 'emerald', social: 'amber' };
@@ -11,7 +12,10 @@ const SERVICE_BADGE = { seo: 'indigo', orm: 'emerald', social: 'amber' };
 export default function AdminConsole() {
   const navigate = useNavigate();
   const location = useLocation();
-  const tab = location.pathname.endsWith('/team') ? 'team' : location.pathname.endsWith('/audit') ? 'audit' : 'clients';
+  const tab = location.pathname.endsWith('/team') ? 'team'
+    : location.pathname.endsWith('/audit') ? 'audit'
+    : location.pathname.endsWith('/definitions') ? 'definitions'
+    : 'clients';
   const tabBtn = (k, label, Icon) => (
     <button key={k} onClick={() => navigate(k === 'clients' ? '/app' : `/app/${k}`)} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${tab === k ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}><Icon className='w-4 h-4' />{label}</button>
   );
@@ -28,11 +32,13 @@ export default function AdminConsole() {
           {tabBtn('clients', 'Clients', Users)}
           {tabBtn('team', 'Team', UserCog)}
           {tabBtn('audit', 'Audit Log', ScrollText)}
+          {tabBtn('definitions', 'Definitions', BookOpen)}
         </div>
       </div>
       {tab === 'clients' && <ClientsTab />}
       {tab === 'team' && <TeamTab />}
       {tab === 'audit' && <AuditTab />}
+      {tab === 'definitions' && <MetricDefinitionsTab />}
     </div>
   );
 }

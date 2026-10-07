@@ -1,17 +1,50 @@
 import supabase from './db-client.js';
 import { withHandler, getProfile, audit } from './helpers.js';
+// Plain data, no JSX and no browser APIs, so the server can read the same
+// catalogue the UI does. Importing it keeps the core-metric list in one place
+// rather than echoing it here.
+import { SERVICE_META, SERVICE_ORDER } from '../src/lib/constants.js';
 
 // Metric definitions for the ⓘ buttons — global reference data, not per-report.
 //
+// Two shapes, chosen by the query:
+//
+//   ?service=seo&metricKey=organic_clicks
+//       -> { definition: "text" | null }        one metric (the ⓘ popover)
+//
+//   (no params)
+//       -> { definitions: { seo: {…}, … }, custom: { seo: [key, …], … } }
+//                                                 the whole catalogue (admin tab)
+//
 // Every definition has a built-in default in src/lib/constants.js; a row here
-// overrides it. So a GET is only ever asked for the overrides, and an empty
-// result is a perfectly normal state (nothing has been reworded yet), not an
-// error to report.
+// overrides it. So an empty override set is the normal state, not an error.
 //
 // Migration 0007 creates the table. Until it has been applied these routes
-// degrade instead of failing: GET returns no overrides and the frontend keeps
-// its defaults, PUT returns a 503 naming the migration.
+// degrade instead of failing: reads return no overrides and the UI keeps its
+// defaults, writes return a 503 naming the migration.
 const MISSING_TABLE = /does not exist|schema cache|relation .* does not exist/i;
+
+// Metric keys used in real reports that are not core metrics for that service.
+// A custom metric has no entry in code, so this is the only way it can surface
+// in the catalogue and become documentable.
+async function customMetricKeys(service) {
+  const meta = SERVICE_META[service];
+  const { data, error } = await supabase.from('reports').select('metrics').eq('service', service);
+  if (error) return [];
+
+  const core = new Set((meta?.coreMetrics || []).map((m) => m.key));
+  const found = new Set();
+  for (const row of data || []) {
+    const metrics = row.metrics || {};
+    const bags = meta?.hasPlatforms
+      ? Object.values(metrics).filter((b) => b && typeof b === 'object' && !Array.isArray(b))
+      : [metrics];
+    for (const bag of bags) {
+      for (const k of Object.keys(bag)) if (k && !core.has(k)) found.add(k);
+    }
+  }
+  return [...found].sort((a, b) => a.localeCompare(b));
+}
 
 export default withHandler('metric-definitions', async (req, res) => {
   const ctx = await getProfile(req);
@@ -20,20 +53,37 @@ export default withHandler('metric-definitions', async (req, res) => {
 
   if (req.method === 'GET') {
     const { service, metricKey } = req.query;
-    if (!service) return res.status(400).json({ error: 'service required' });
 
-    let q = supabase.from('metric_definitions').select('metric_key, definition').eq('service', service);
-    if (metricKey) q = q.eq('metric_key', metricKey);
-    const { data, error } = await q;
-
-    if (error) {
-      if (MISSING_TABLE.test(error.message || '')) {
-        return res.status(200).json({ definitions: {}, migrationMissing: true });
+    // Single-metric mode, used by the ⓘ popover.
+    if (service && metricKey) {
+      const { data, error } = await supabase.from('metric_definitions')
+        .select('definition').eq('service', service).eq('metric_key', metricKey).maybeSingle();
+      if (error) {
+        if (MISSING_TABLE.test(error.message || '')) return res.status(200).json({ definition: null });
+        throw error;
       }
-      throw error;
+      return res.status(200).json({ definition: data?.definition || null });
     }
-    const definitions = Object.fromEntries((data || []).map((r) => [r.metric_key, r.definition]));
-    return res.status(200).json({ definitions });
+
+    // Catalogue mode, used by the admin tab: every override at once.
+    const { data, error } = await supabase.from('metric_definitions').select('service, metric_key, definition');
+    if (error && !MISSING_TABLE.test(error.message || '')) throw error;
+
+    const definitions = Object.fromEntries(SERVICE_ORDER.map((s) => [s, {}]));
+    for (const row of data || []) {
+      if (!definitions[row.service]) definitions[row.service] = {};
+      definitions[row.service][row.metric_key] = row.definition;
+    }
+
+    // Scanning reports is only worth doing for the catalogue, never per-popover.
+    const custom = {};
+    for (const s of SERVICE_ORDER) custom[s] = await customMetricKeys(s);
+
+    return res.status(200).json({
+      definitions,
+      custom,
+      migrationMissing: Boolean(error),
+    });
   }
 
   if (req.method === 'PUT') {
