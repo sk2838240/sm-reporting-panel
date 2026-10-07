@@ -7,6 +7,7 @@ import { FullLoader, EmptyState, useToast, BackButton, Badge, SegmentedControl, 
 import { TrendChart, ComparisonBars } from '../components/charts';
 import { KeywordRankingTable } from '../components/KeywordRanking';
 import { KeywordStatusView } from '../components/KeywordStatus';
+import { MetricInfo } from '../components/MetricInfo';
 import { serviceIcon } from '../lib/service-icons';
 import { SERVICE_META, SERVICE_ORDER, NOTE_SECTIONS } from '../lib/constants';
 import { fmtNum, fmtRaw, fmtPct, shortPeriod, formatDate, parseLocalDate } from '../lib/format';
@@ -462,7 +463,12 @@ function MetricCard({ meta, metric, platform, series, latest, prev, mode, target
         <div>
           <div className='flex items-center gap-1.5'>
             {platform && <span className='w-2 h-2 rounded-full' style={{ background: platform.color }} />}
-            <span className='text-xs font-semibold text-slate-500 dark:text-slate-400'>{platform ? `${platform.label} · ` : ''}{metric.label}</span>
+            <span className='text-xs font-semibold text-slate-500 dark:text-slate-400 inline-flex items-center gap-1'>
+              {platform ? `${platform.label} · ` : ''}{metric.label}
+              {/* Pilot: only Organic Clicks carries a definition so far. Remove
+                  this gate once the wording is agreed and the rest are written. */}
+              {metric.key === 'organic_clicks' && <MetricInfo service={meta.key} metricKey={metric.key} name={metric.label} />}
+            </span>
           </div>
           <div className='text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1'>{fmtNum(cur, metric.format)}{metric.suffix || ''}</div>
           {sub && <div className='text-[11px] text-slate-400 dark:text-slate-500 mt-0.5'>{sub}</div>}

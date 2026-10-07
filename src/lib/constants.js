@@ -134,3 +134,31 @@ export const NOTE_SECTIONS = [
   { id: 'notes4', titleKey: 'notes4_title', pointsKey: 'notes4_points', fallback: 'Notes 4' },
   { id: 'notes5', titleKey: 'notes5_title', pointsKey: 'notes5_points', fallback: 'Notes 5' },
 ];
+
+// Plain-language explanations shown behind each metric's ⓘ button.
+//
+// These are DEFAULTS. A row in the metric_definitions table (migration 0007)
+// overrides the matching entry, so the agency can reword anything without a
+// code change — and can document custom metrics this file has never heard of.
+// Keeping defaults here means the ⓘ buttons work before 0007 has been applied.
+//
+// Keys are the metric key for core metrics (SERVICE_META.coreMetrics[].key) and
+// the column key for table columns (SERVICE_META.*.lists[].columns[].key), so
+// 'sessions' below covers the column of that name in both GA4 tables.
+export const METRIC_DEFINITIONS = {
+  seo: {
+    organic_clicks: 'How many times people clicked through from Google search results to your site. This counts unpaid results only — not ads. More clicks usually means stronger rankings, or titles and descriptions that people want to click.',
+    impressions: 'How many times your site appeared in Google search results, whether or not anyone clicked it. A high number with few clicks usually means the titles or descriptions are not giving people a reason to click.',
+    avg_ranking: 'Your average position in Google search results across all the queries tracked for you. Position 1 is the top result, so a lower number is better.',
+    sessions: 'One session is one visit to the site. The same person can create several sessions in a day if they leave and come back, or arrive from a different source.',
+    active_users: 'The number of distinct people who visited during the period. Unlike sessions, each person is counted once however often they visited.',
+    engagement_rate: 'The share of sessions that were meaningful — roughly, visits where someone stayed long enough, viewed more than one page, or completed a goal. A higher percentage is better.',
+    bounce_rate: 'The share of sessions where someone left without engaging: a single page, no further action. A lower percentage is better, and it runs roughly opposite to engagement rate.',
+  },
+  orm: {},
+  social: {},
+};
+
+export function defaultDefinition(service, metricKey) {
+  return METRIC_DEFINITIONS[service]?.[metricKey] || '';
+}

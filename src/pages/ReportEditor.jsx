@@ -8,6 +8,7 @@ import { KeywordStatusTracker } from '../components/KeywordStatus';
 import { SectionToggle } from '../components/SectionToggle';
 import { DraggableSection } from '../components/DraggableSection';
 import { CopyFromMonth } from '../components/CopyFromMonth';
+import { MetricInfo } from '../components/MetricInfo';
 import { ServiceIcon } from '../lib/service-icons';
 import { SERVICE_META, NOTE_SECTIONS } from '../lib/constants';
 import { useAuth } from '../contexts/AuthContext';
@@ -491,7 +492,8 @@ export default function ReportEditor() {
         ) : (
           <div className='grid sm:grid-cols-3 gap-4'>
             {meta.coreMetrics.map((m) => (
-              <Field key={m.key} label={m.label} hint={m.lowerBetter ? 'Lower is better' : undefined}>
+              <Field key={m.key} hint={m.lowerBetter ? 'Lower is better' : undefined}
+                label={<span className='inline-flex items-center gap-1'>{m.label}{/* Pilot: Organic Clicks only. */}{m.key === 'organic_clicks' && <MetricInfo service={report.service} metricKey={m.key} name={m.label} />}</span>}>
                 <Input type='number' step='any' value={coreValues[m.key] ?? ''} onChange={(e) => setCoreValues((cv) => ({ ...cv, [m.key]: e.target.value }))} placeholder='0' />
               </Field>
             ))}

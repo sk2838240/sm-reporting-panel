@@ -31,6 +31,7 @@ import devopDb from '../server/devop-db.js';
 import devopFiles from '../server/devop-files.js';
 import invites from '../server/invites.js';
 import me from '../server/me.js';
+import metricDefinitions from '../server/metric-definitions.js';
 import notifications from '../server/notifications.js';
 import reportsStructure from '../server/reports-structure.js';
 import reports from '../server/reports.js';
@@ -49,6 +50,7 @@ const ROUTES = {
   'devop-files': devopFiles,
   invites,
   me,
+  'metric-definitions': metricDefinitions,
   notifications,
   'reports-structure': reportsStructure,
   reports,
